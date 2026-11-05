@@ -11,18 +11,20 @@ custom_components/vtherm_quirks/
   factory.py         # QuirksManagerFactory (name "vtherm_quirks")
   manager.py         # QuirksManager: dispatches the hooks to the quirks
   repairs.py         # issues reported by check_configuration
-  const.py           # constants, including the VTherm configuration keys
+  const.py           # constants shared by the framework and several quirks
   quirks/
-    __init__.py      # QUIRKS = [SonoffTrvZbtQuirk, ...] and the helpers
+    __init__.py      # discovers the quirk modules (QUIRKS) and the helpers
     base.py          # BaseQuirk, EntityRole, QuirkIssue
     sonoff_trv_zbt.py
 ```
 
-- The **registry** (`quirks/__init__.py`) is the list of known quirk classes. Adding a quirk means adding a module and one line to `QUIRKS`.
+- The **registry** (`quirks/__init__.py`) discovers the quirk classes when the package is imported: it imports every module of `quirks/` except `base` and the ones starting with `_`, and keeps the `BaseQuirk` subclasses defined there that have a `quirk_id`. Adding a quirk means adding a module, there is no list to edit. A module that fails to import is logged and skipped, and a duplicate `quirk_id` is logged and ignored.
 - The **`QuirksManager`** is the only feature manager of the plugin, one per VTherm. It implements the three hooks and forwards each call to the quirk instance bound to the underlying concerned. It only forwards a hook to a quirk whose class defines it.
 - A **quirk instance** exists for each configured underlying. It keeps its own state (tasks, locks) and only implements the hooks it needs.
 
 The plugin never imports the private modules of the VTherm core. The VTherm configuration is read from `runtime.entry_infos`, with the keys declared in `const.py` (prefix `VT_CONF_`).
+
+`const.py` only keeps what the framework and several quirks share: the integration keys, the `VT_CONF_` keys, the scopes, the underlying types and the command causes. Everything specific to a device (manufacturer and model, Zigbee2MQTT and ZHA entity names, option keys, defaults and limits) is a constant of the module of its quirk.
 
 ## The hooks
 
@@ -120,13 +122,7 @@ class AcmeRelayQuirk(BaseQuirk):
         _LOGGER.debug("%s requested %.0f%%", self.underlying_entity_id, command.requested_on_percent * 100)
 ```
 
-Then register it in `quirks/__init__.py`:
-
-```python
-from .acme_relay import AcmeRelayQuirk
-
-QUIRKS: list[type[BaseQuirk]] = [SonoffTrvZbtQuirk, AcmeRelayQuirk]
-```
+Save it as `quirks/acme_relay.py`. It is discovered automatically, there is nothing to register. Keep its device identifiers, option keys and limits as constants at the top of this module.
 
 For a quirk with `entity_roles` or `options_schema` of its own, also add:
 
