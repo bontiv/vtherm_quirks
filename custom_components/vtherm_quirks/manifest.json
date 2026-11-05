@@ -1,0 +1,14 @@
+{
+  "domain": "vtherm_quirks",
+  "name": "Versatile Thermostat Quirks",
+  "after_dependencies": ["versatile_thermostat"],
+  "codeowners": ["@bontiv"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/bontiv/vtherm_quirks",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/bontiv/vtherm_quirks/issues",
+  "requirements": ["vtherm_api>=0.9.0"],
+  "version": "0.1.0"
+}

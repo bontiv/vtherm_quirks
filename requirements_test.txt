@@ -1,0 +1,4 @@
+# Tests run against Home Assistant through pytest-homeassistant-custom-component.
+# vtherm_api 0.9.0 or later is required (underlying hooks contract).
+pytest-homeassistant-custom-component
+vtherm_api>=0.9.0
