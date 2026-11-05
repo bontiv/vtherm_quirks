@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="cold" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#4cc9fb"/>
+      <stop offset="1" stop-color="#2a55e0"/>
+    </linearGradient>
+    <linearGradient id="hot" x1="0.7" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffa21e"/>
+      <stop offset="1" stop-color="#ff5412"/>
+    </linearGradient>
+    <linearGradient id="knob" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+    <clipPath id="disc"><circle cx="128" cy="128" r="120"/></clipPath>
+  </defs>
+
+  <!-- background disc, cold half and hot half -->
+  <g clip-path="url(#disc)">
+    <rect x="0" y="0" width="128" height="256" fill="url(#cold)"/>
+    <rect x="128" y="0" width="128" height="256" fill="url(#hot)"/>
+  </g>
+
+  <!-- thermostatic radiator valve -->
+  <g fill="#ffffff">
+    <!-- head -->
+    <rect x="92" y="40" width="72" height="118" rx="24"/>
+    <!-- neck -->
+    <rect x="112" y="150" width="32" height="30" rx="4"/>
+    <!-- body / pipe -->
+    <rect x="52" y="176" width="152" height="32" rx="14"/>
+    <!-- pipe nuts -->
+    <rect x="46" y="170" width="24" height="44" rx="6"/>
+    <rect x="186" y="170" width="24" height="44" rx="6"/>
+  </g>
+  <!-- knurled grip of the head, in the colours of the disc -->
+  <g stroke-width="6" stroke-linecap="round">
+    <line x1="110" y1="62" x2="110" y2="136" stroke="#3f8cf0" opacity="0.55"/>
+    <line x1="128" y1="58" x2="128" y2="140" stroke="#9a86b8" opacity="0.55"/>
+    <line x1="146" y1="62" x2="146" y2="136" stroke="#ff7a1a" opacity="0.55"/>
+  </g>
+
+  <!-- grooves between the head, the neck and the body -->
+  <g stroke-width="4" stroke-linecap="round" opacity="0.5">
+    <line x1="114" y1="163" x2="142" y2="163" stroke="#8a7fb0"/>
+  </g>
+
+  <!-- cold side: tuning sliders -->
+  <g stroke="#ffffff" stroke-width="9" stroke-linecap="round" fill="#ffffff">
+    <line x1="30" y1="88" x2="74" y2="88"/>
+    <line x1="30" y1="114" x2="74" y2="114"/>
+    <line x1="30" y1="140" x2="74" y2="140"/>
+    <circle cx="44" cy="88" r="9"/>
+    <circle cx="62" cy="114" r="9"/>
+    <circle cx="38" cy="140" r="9"/>
+  </g>
+
+  <!-- hot side: wrench (Material Icons "build", Apache-2.0) -->
+  <path fill="#ffffff" transform="translate(176 82) scale(2.6)"
+        d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/>
+</svg>

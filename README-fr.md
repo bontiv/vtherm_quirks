@@ -1,3 +1,5 @@
+<p align="center"><img src="custom_components/vtherm_quirks/brand/logo@2x.png" alt="VTherm Quirks" width="400"></p>
+
 # Versatile Thermostat Quirks
 
 [![Licence : MIT](https://img.shields.io/badge/Licence-MIT-blue.svg)](LICENSE)
