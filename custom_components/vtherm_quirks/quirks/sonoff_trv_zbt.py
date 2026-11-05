@@ -476,7 +476,9 @@ class SonoffTrvZbtQuirk(BaseQuirk):
         """Sync idle_valve_position and ask for a kick."""
         cause = str(command.cause)
         self._latest_opening = command.opening_degree
-        if cause == CAUSE_TURN_OFF:
+        # The core closes the valve after it sent the OFF mode: the TRV can
+        # still read heat in Home Assistant, so trust the command first.
+        if cause == CAUSE_TURN_OFF or str(command.hvac_mode) == HVAC_OFF:
             await self._async_turn_off()
             return
         if self._trv_is_unavailable():

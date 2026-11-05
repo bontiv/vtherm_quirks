@@ -44,6 +44,7 @@ def make_quirk(
 def valve_command(
     opening: int = 50,
     cause: ValveCommandCause = ValveCommandCause.REGULATION,
+    hvac_mode: str = "heat",
 ) -> ValveCommand:
     return ValveCommand(
         climate_entity_id=CLIMATE,
@@ -52,7 +53,7 @@ def valve_command(
         percent_open=opening,
         opening_degree=opening,
         closing_degree=None,
-        hvac_mode="heat",
+        hvac_mode=hvac_mode,
         cause=cause,
     )
 
@@ -325,6 +326,29 @@ async def test_turn_off_valve_command(hass: HomeAssistant) -> None:
     assert sim.calls == [sim.external_off, ("number", IDLE, 0)]
     await advance(hass, 10)
     assert len(sim.calls) == 2
+    await quirk.async_stop()
+
+
+async def test_regulation_command_off_while_trv_still_heat(
+    hass: HomeAssistant,
+) -> None:
+    """A REGULATION command with hvac_mode off writes idle 0 and never kicks.
+
+    The core closes the valve after sending the OFF mode, so the TRV can still
+    read heat in Home Assistant when the command arrives.
+    """
+    sim = TrvSim(hass).setup(idle=30)
+    quirk = make_quirk(hass, sim)
+    await quirk.async_start()
+    assert not quirk._trv_is_off()
+
+    await quirk.async_after_valve_command(
+        valve_command(0, ValveCommandCause.REGULATION, hvac_mode="off")
+    )
+    await flush()
+    assert sim.calls == [("number", IDLE, 0)]
+    await advance(hass, 10)
+    assert sim.calls == [("number", IDLE, 0)]
     await quirk.async_stop()
 
 
