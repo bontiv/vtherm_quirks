@@ -25,6 +25,7 @@ This integration registers one feature manager per VTherm. The manager forwards 
 
 | Quirk | Device | Integrations | Page |
 |---|---|---|---|
+| `moes_trv601` | Moes TRV801 / Tuya TRV601 | Zigbee2MQTT | [docs/quirks/moes_trv601.md](docs/quirks/moes_trv601.md) |
 | `sonoff_trv_zbt` | Sonoff TRV-ZBT (Gen2) | Zigbee2MQTT, ZHA | [docs/quirks/sonoff_trv_zbt.md](docs/quirks/sonoff_trv_zbt.md) |
 
 It replaces the [Sonoff TRV-ZBT valve kick blueprint](https://gist.github.com/bontiv/af2d59adb15bf3d522282edd662a75e4). Other quirks are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -25,6 +25,7 @@ Cette intégration enregistre un feature manager par VTherm. Le manager transmet
 
 | Quirk | Appareil | Intégrations | Page |
 |---|---|---|---|
+| `moes_trv601` | Moes TRV801 / Tuya TRV601 | Zigbee2MQTT | [docs/quirks/moes_trv601.md](docs/quirks/moes_trv601.md) |
 | `sonoff_trv_zbt` | Sonoff TRV-ZBT (Gen2) | Zigbee2MQTT, ZHA | [docs/quirks/sonoff_trv_zbt.md](docs/quirks/sonoff_trv_zbt.md) |
 
 Il remplace le blueprint [Sonoff TRV-ZBT valve kick](https://gist.github.com/bontiv/af2d59adb15bf3d522282edd662a75e4). Les autres quirks sont bienvenus, voir [CONTRIBUTING.md](CONTRIBUTING.md) (en anglais).

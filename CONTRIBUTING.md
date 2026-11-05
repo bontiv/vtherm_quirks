@@ -15,6 +15,7 @@ custom_components/vtherm_quirks/
   quirks/
     __init__.py      # discovers the quirk modules (QUIRKS) and the helpers
     base.py          # BaseQuirk, EntityRole, QuirkIssue
+    moes_trv601.py
     sonoff_trv_zbt.py
 ```
 
@@ -78,7 +79,7 @@ class BaseQuirk:
 - `entity_roles` lists the roles shown in the config flow, with the accepted domains and whether each one is required. A quirk is configured, and receives hooks, only when all its required roles are filled.
 - `options_schema` describes the options with defaults, so that `options_schema()({})` is valid. Use selectors, they are rendered by the config flow.
 - `async_start` runs at startup: put the device back in a clean state and subscribe to what you need. `async_stop` cancels the running work and restores the device.
-- `check_configuration` is synchronous and cheap, it runs at every VTherm cycle. It returns the problems to report as `QuirkIssue(key, placeholders=...)`.
+- `check_configuration` is synchronous and cheap, it runs at every VTherm cycle. It returns the problems to report as `QuirkIssue(key, placeholders=...)`. A problem found at runtime, for example in a state listener, is kept by the quirk and returned by the next `check_configuration`. Call `self.request_issue_sync()` so that the repairs are updated at once, without waiting for the next cycle.
 
 `quirk_id`, `underlying_types` and `vtherm_scopes` decide when the quirk is offered: the VTherm must have an underlying of one of the types and one of the scopes. `over_climate_valve` is an `over_climate` with the direct valve control (`auto_regulation_valve`).
 
