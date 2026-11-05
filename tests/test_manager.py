@@ -323,3 +323,25 @@ async def test_factory_supports(hass: HomeAssistant) -> None:
     await hass.config_entries.async_unload(entry.entry_id)
     assert find_config_entry(hass, "vtherm_salon") is None
     assert not factory.supports(runtime)
+
+
+async def test_quirk_can_request_an_issue_sync(hass: HomeAssistant) -> None:
+    """request_issue_sync updates the repairs without a cycle, and stops after stop_listening."""
+    manager, runtime, _ = await make_manager(hass, {A: conf("fake_all")})
+    registry = ir.async_get(hass)
+    await manager.start_listening()
+    quirk = manager.quirks[A]
+    issue_id = f"{runtime.unique_id}_{A}_open_window_enabled"
+
+    RecordingQuirk.issues = [QuirkIssue("open_window_enabled")]
+    quirk.request_issue_sync()
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    RecordingQuirk.issues = []
+    quirk.request_issue_sync()
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+    manager.stop_listening()
+    RecordingQuirk.issues = [QuirkIssue("open_window_enabled")]
+    quirk.request_issue_sync()
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
