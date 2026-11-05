@@ -153,4 +153,4 @@ pytest
 
 ## Documentation
 
-Add `docs/quirks/<quirk_id>.md` (why the quirk exists, supported setups, device and VTherm settings, options, how to verify it) and a line in the quirks table of `README.md` and `README-fr.md`. If a section of the page would only hold a single callout, write it as plain text instead.
+Add `docs/quirks/<quirk_id>.md` (why the quirk exists, supported setups, device and VTherm settings, options, how to verify it) and a line in the quirks table of `README.md`, `README.fr.md` and `README.de.md`. If a section of the page would only hold a single callout, write it as plain text instead.

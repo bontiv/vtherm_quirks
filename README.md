@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 
-*Lire en français : [README-fr.md](README-fr.md)*
+*Lire en français : [README.fr.md](README.fr.md) · Auf Deutsch lesen: [README.de.md](README.de.md)*
 
 Some devices do not behave the way a generic thermostat expects. A valve that ignores a new opening while it is idle, a TRV that goes to a fixed position when it is switched off, a setpoint that must be sent again after a mode change. These are **quirks**.
 

@@ -5,7 +5,7 @@
 [![Licence : MIT](https://img.shields.io/badge/Licence-MIT-blue.svg)](LICENSE)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 
-*Read in English: [README.md](README.md)*
+*Read in English: [README.md](README.md) · Auf Deutsch lesen: [README.de.md](README.de.md)*
 
 Certains appareils ne se comportent pas comme un thermostat générique l'attend. Une vanne qui ignore une nouvelle ouverture tant qu'elle est au repos, une TRV qui se place sur une position fixe quand on l'éteint, une consigne à renvoyer après un changement de mode. Ce sont des **quirks**.
 
