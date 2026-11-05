@@ -104,6 +104,7 @@ class QuirksManager:
         """Start the quirks."""
         self._started = True
         for quirk in self._quirks.values():
+            quirk.issue_sync_callback = self._sync_issues
             try:
                 await quirk.async_start()
             except Exception:  # pylint: disable=broad-except
@@ -119,6 +120,7 @@ class QuirksManager:
         self._listeners.clear()
         if self._started:
             for quirk in self._quirks.values():
+                quirk.issue_sync_callback = None
                 self._hass.async_create_background_task(
                     self._async_stop_quirk(quirk),
                     f"vtherm_quirks stop {quirk.quirk_id} {quirk.underlying_entity_id}",

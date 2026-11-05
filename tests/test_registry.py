@@ -20,6 +20,7 @@ from custom_components.vtherm_quirks.quirks import (
     underlying_type_of,
     vtherm_scopes_of,
 )
+from custom_components.vtherm_quirks.quirks.moes_trv601 import MoesTrv601Quirk
 from custom_components.vtherm_quirks.quirks.sonoff_trv_zbt import SonoffTrvZbtQuirk
 
 from .common import add_device, vtherm_entry_infos
@@ -40,8 +41,6 @@ def test_every_quirk_declares_its_contract(quirk: type[BaseQuirk]) -> None:
     assert quirk.underlying_types
     assert quirk.vtherm_scopes
     roles = quirk.entity_roles()
-    assert roles
-    assert any(role.required for role in roles)
     assert len({role.key for role in roles}) == len(roles)
     for role in roles:
         assert role.domains
@@ -85,8 +84,11 @@ def test_scopes_and_underlying_type() -> None:
 
 def test_compatible_quirks() -> None:
     """Only quirks matching the type and the scope are compatible."""
-    assert compatible_quirks(vtherm_entry_infos()) == [SonoffTrvZbtQuirk]
-    assert compatible_quirks(vtherm_entry_infos(auto_regulation_mode="auto_regulation_slow")) == []
+    assert compatible_quirks(vtherm_entry_infos()) == [MoesTrv601Quirk, SonoffTrvZbtQuirk]
+    # Without direct valve control only the quirks of the plain over_climate remain.
+    assert compatible_quirks(vtherm_entry_infos(auto_regulation_mode="auto_regulation_slow")) == [
+        MoesTrv601Quirk
+    ]
     assert compatible_quirks({"thermostat_type": "thermostat_over_switch"}) == []
 
 

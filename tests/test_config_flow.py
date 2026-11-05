@@ -53,7 +53,7 @@ async def test_full_flow_with_detected_quirk(hass: HomeAssistant, kind: str) -> 
     schema = result["data_schema"]
     assert schema({}) == {"quirk": "sonoff_trv_zbt"}
     selector_config = next(iter(schema.schema.values())).config
-    assert list(selector_config["options"]) == ["none", "sonoff_trv_zbt"]
+    assert list(selector_config["options"]) == ["none", "moes_trv601", "sonoff_trv_zbt"]
     assert result["description_placeholders"]["detected"] == "Sonoff TRV-ZBT"
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"quirk": "sonoff_trv_zbt"}
@@ -149,11 +149,10 @@ async def test_each_underlying_has_its_own_quirk_step(hass: HomeAssistant) -> No
 
 
 async def test_only_compatible_vtherms_are_listed(hass: HomeAssistant) -> None:
-    """Switch VTherms, central configuration and valve-less climates are not proposed."""
+    """Switch VTherms and central configuration are not proposed."""
     add_vtherm_entry(hass, "vt_ok", name="Ok")
     add_vtherm_entry(hass, "vt_switch", name="Switch", thermostat_type="thermostat_over_switch")
     add_vtherm_entry(hass, "vt_central", name="Central", thermostat_type="thermostat_central_config")
-    add_vtherm_entry(hass, "vt_novalve", name="NoValve", auto_regulation_mode="auto_regulation_none")
     result = await start_flow(hass)
     selector_config = next(iter(result["data_schema"].schema.values())).config
     assert [option["value"] for option in selector_config["options"]] == ["vt_ok"]

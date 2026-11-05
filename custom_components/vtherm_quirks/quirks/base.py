@@ -13,7 +13,7 @@ defines it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -134,6 +134,8 @@ class BaseQuirk:
         self.underlying_entity_id = underlying_entity_id
         self.entities: dict[str, str | None] = dict(entities)
         self.options: dict[str, Any] = dict(options)
+        self.issue_sync_callback: Callable[[], None] | None = None
+        """Set by the manager: asks it to read ``check_configuration`` again."""
 
     @property
     def is_configured(self) -> bool:
@@ -160,5 +162,15 @@ class BaseQuirk:
         """Cancel the running work and restore the device."""
 
     def check_configuration(self) -> list[QuirkIssue]:
-        """Return the configuration problems to report. Must be cheap and synchronous."""
+        """Return the configuration problems to report. Must be cheap and synchronous.
+
+        The manager calls it at each cycle of the VTherm. A quirk that finds a
+        problem at runtime keeps it and calls :meth:`request_issue_sync` so that
+        the repairs are updated without waiting for the next cycle.
+        """
         return []
+
+    def request_issue_sync(self) -> None:
+        """Ask the manager to read ``check_configuration`` again and update the repairs."""
+        if self.issue_sync_callback is not None:
+            self.issue_sync_callback()

@@ -43,13 +43,15 @@
           "temperature_source": "Source de température normale",
           "delta": "Écart de température",
           "pulse_delay": "Durée du kick",
-          "hot_step": "Étape chaude"
+          "hot_step": "Étape chaude",
+          "keep_schedule": "Garder le programme de la TRV"
         },
         "data_description": {
           "temperature_source": "Source de température rétablie après le kick. Choisissez Distante seulement si une autre automatisation alimente la température externe : sa dernière valeur est alors rétablie.",
           "delta": "Écart entre la consigne de la TRV et la fausse température. Doit être supérieur à la précision de température de la TRV.",
           "pulse_delay": "Temps laissé à la TRV pour réagir avant de rétablir le capteur de température.",
-          "hot_step": "Après l'étape froide, envoie aussi une fausse température au-dessus de la consigne pour forcer le passage en idle. À activer seulement si la vanne n'atteint pas l'ouverture demandée sans elle."
+          "hot_step": "Après l'étape froide, envoie aussi une fausse température au-dessus de la consigne pour forcer le passage en idle. À activer seulement si la vanne n'atteint pas l'ouverture demandée sans elle.",
+          "keep_schedule": "Accepte le preset auto (programme hebdomadaire de la TRV) quand le thermostat chauffe. Le preset on (vanne forcée ouverte) est toujours corrigé."
         }
       }
     },
@@ -95,13 +97,15 @@
           "temperature_source": "Source de température normale",
           "delta": "Écart de température",
           "pulse_delay": "Durée du kick",
-          "hot_step": "Étape chaude"
+          "hot_step": "Étape chaude",
+          "keep_schedule": "Garder le programme de la TRV"
         },
         "data_description": {
           "temperature_source": "Source de température rétablie après le kick. Choisissez Distante seulement si une autre automatisation alimente la température externe : sa dernière valeur est alors rétablie.",
           "delta": "Écart entre la consigne de la TRV et la fausse température. Doit être supérieur à la précision de température de la TRV.",
           "pulse_delay": "Temps laissé à la TRV pour réagir avant de rétablir le capteur de température.",
-          "hot_step": "Après l'étape froide, envoie aussi une fausse température au-dessus de la consigne pour forcer le passage en idle. À activer seulement si la vanne n'atteint pas l'ouverture demandée sans elle."
+          "hot_step": "Après l'étape froide, envoie aussi une fausse température au-dessus de la consigne pour forcer le passage en idle. À activer seulement si la vanne n'atteint pas l'ouverture demandée sans elle.",
+          "keep_schedule": "Accepte le preset auto (programme hebdomadaire de la TRV) quand le thermostat chauffe. Le preset on (vanne forcée ouverte) est toujours corrigé."
         }
       }
     },
@@ -114,7 +118,8 @@
     "quirk": {
       "options": {
         "none": "Aucun",
-        "sonoff_trv_zbt": "Sonoff TRV-ZBT"
+        "sonoff_trv_zbt": "Sonoff TRV-ZBT",
+        "moes_trv601": "Moes TRV801 / Tuya TRV601 (Zigbee2MQTT)"
       }
     },
     "temperature_source": {
@@ -160,6 +165,14 @@
     "open_window_enabled": {
       "title": "Détection de fenêtre ouverte activée",
       "description": "{name} : {entity} est activé. Désactivez-le sur l'appareil, sinon le quirk {quirk} sur {underlying} peut être perturbé."
+    },
+    "preset_keeps_changing": {
+      "title": "Le preset de la vanne change sans cesse",
+      "description": "{name} : le quirk {quirk} n'arrive pas à garder {underlying} dans le preset {preset}, il est maintenant {current}. Le quirk a arrêté de le corriger après 3 essais. Cherchez ce qui change le preset (l'appareil, une automatisation, une autre intégration). Le quirk reprend quand le thermostat change de mode."
+    },
+    "outdated_converter": {
+      "title": "Convertisseur Zigbee2MQTT trop ancien",
+      "description": "{name} : {underlying} affiche l'état auto alors que son preset est manual, donc le convertisseur de Zigbee2MQTT pour cette vanne n'est pas à jour. Mettez à jour Zigbee2MQTT. Tant que ce n'est pas fait, le thermostat lit un mauvais mode et le quirk {quirk} ne peut pas fonctionner."
     }
   }
 }

@@ -43,13 +43,15 @@
           "temperature_source": "Normale Temperaturquelle",
           "delta": "Temperaturdifferenz",
           "pulse_delay": "Dauer des Kicks",
-          "hot_step": "Heißer Schritt"
+          "hot_step": "Heißer Schritt",
+          "keep_schedule": "Zeitplan des TRV behalten"
         },
         "data_description": {
           "temperature_source": "Temperaturquelle, die nach dem Kick wiederhergestellt wird. Remote nur wählen, wenn eine andere Automatisierung die externe Temperatur liefert: ihr letzter Wert wird dann wiederhergestellt.",
           "delta": "Abstand zwischen dem Sollwert des TRV und der falschen Temperatur. Muss größer als die Temperaturgenauigkeit des TRV sein.",
           "pulse_delay": "Zeit, die dem TRV zum Reagieren bleibt, bevor der Temperatursensor wiederhergestellt wird.",
-          "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht."
+          "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht.",
+          "keep_schedule": "Akzeptiert das Preset auto (Wochenprogramm des TRV), wenn das Thermostat heizt. Das Preset on (Ventil erzwungen offen) wird immer korrigiert."
         }
       }
     },
@@ -95,13 +97,15 @@
           "temperature_source": "Normale Temperaturquelle",
           "delta": "Temperaturdifferenz",
           "pulse_delay": "Dauer des Kicks",
-          "hot_step": "Heißer Schritt"
+          "hot_step": "Heißer Schritt",
+          "keep_schedule": "Zeitplan des TRV behalten"
         },
         "data_description": {
           "temperature_source": "Temperaturquelle, die nach dem Kick wiederhergestellt wird. Remote nur wählen, wenn eine andere Automatisierung die externe Temperatur liefert: ihr letzter Wert wird dann wiederhergestellt.",
           "delta": "Abstand zwischen dem Sollwert des TRV und der falschen Temperatur. Muss größer als die Temperaturgenauigkeit des TRV sein.",
           "pulse_delay": "Zeit, die dem TRV zum Reagieren bleibt, bevor der Temperatursensor wiederhergestellt wird.",
-          "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht."
+          "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht.",
+          "keep_schedule": "Akzeptiert das Preset auto (Wochenprogramm des TRV), wenn das Thermostat heizt. Das Preset on (Ventil erzwungen offen) wird immer korrigiert."
         }
       }
     },
@@ -114,7 +118,8 @@
     "quirk": {
       "options": {
         "none": "Keiner",
-        "sonoff_trv_zbt": "Sonoff TRV-ZBT"
+        "sonoff_trv_zbt": "Sonoff TRV-ZBT",
+        "moes_trv601": "Moes TRV801 / Tuya TRV601 (Zigbee2MQTT)"
       }
     },
     "temperature_source": {
@@ -160,6 +165,14 @@
     "open_window_enabled": {
       "title": "Fenster-offen-Erkennung aktiviert",
       "description": "{name}: {entity} ist eingeschaltet. Schalte es am Gerät aus, sonst kann der Quirk {quirk} auf {underlying} gestört werden."
+    },
+    "preset_keeps_changing": {
+      "title": "Preset des Heizkörperventils ändert sich ständig",
+      "description": "{name}: Der Quirk {quirk} kann {underlying} nicht im Preset {preset} halten, es ist jetzt {current}. Der Quirk hat nach 3 Versuchen aufgehört, es zu korrigieren. Prüfe, was das Preset ändert (das Gerät, eine Automatisierung, eine andere Integration). Der Quirk macht weiter, wenn das Thermostat den Modus wechselt."
+    },
+    "outdated_converter": {
+      "title": "Zigbee2MQTT-Konverter zu alt",
+      "description": "{name}: {underlying} zeigt den Zustand auto, obwohl das Preset manual ist. Der Konverter von Zigbee2MQTT für dieses Ventil ist also veraltet. Aktualisiere Zigbee2MQTT. Bis dahin liest das Thermostat den falschen Modus und der Quirk {quirk} kann nicht funktionieren."
     }
   }
 }

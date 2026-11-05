@@ -128,8 +128,9 @@ class _QuirkFlowMixin:
     ) -> ConfigFlowResult:
         """Check the entities of the quirk, prefilled by the discovery."""
         quirk = self._current_quirk
-        if user_input is not None:
-            self._current_entities = {k: v for k, v in user_input.items() if v}
+        if user_input is not None or not quirk.entity_roles():
+            # A quirk without entity role has nothing to ask.
+            self._current_entities = {k: v for k, v in (user_input or {}).items() if v}
             return await self.async_step_options()
 
         device = get_device_of_entity(self.hass, self._current)  # type: ignore[attr-defined]

@@ -43,13 +43,15 @@
           "temperature_source": "Normal temperature source",
           "delta": "Temperature delta",
           "pulse_delay": "Kick duration",
-          "hot_step": "Hot step"
+          "hot_step": "Hot step",
+          "keep_schedule": "Keep the schedule of the TRV"
         },
         "data_description": {
           "temperature_source": "Temperature source restored after the kick. Use Remote only if another automation feeds the external temperature: its last value is then restored.",
           "delta": "Gap between the TRV setpoint and the fake temperature. Must be higher than the TRV temperature accuracy.",
           "pulse_delay": "Time to let the TRV react before restoring the temperature sensor.",
-          "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it."
+          "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it.",
+          "keep_schedule": "Accept the preset auto (weekly schedule of the TRV) when the thermostat heats. The preset on (valve forced open) is always corrected."
         }
       }
     },
@@ -95,13 +97,15 @@
           "temperature_source": "Normal temperature source",
           "delta": "Temperature delta",
           "pulse_delay": "Kick duration",
-          "hot_step": "Hot step"
+          "hot_step": "Hot step",
+          "keep_schedule": "Keep the schedule of the TRV"
         },
         "data_description": {
           "temperature_source": "Temperature source restored after the kick. Use Remote only if another automation feeds the external temperature: its last value is then restored.",
           "delta": "Gap between the TRV setpoint and the fake temperature. Must be higher than the TRV temperature accuracy.",
           "pulse_delay": "Time to let the TRV react before restoring the temperature sensor.",
-          "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it."
+          "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it.",
+          "keep_schedule": "Accept the preset auto (weekly schedule of the TRV) when the thermostat heats. The preset on (valve forced open) is always corrected."
         }
       }
     },
@@ -114,7 +118,8 @@
     "quirk": {
       "options": {
         "none": "None",
-        "sonoff_trv_zbt": "Sonoff TRV-ZBT"
+        "sonoff_trv_zbt": "Sonoff TRV-ZBT",
+        "moes_trv601": "Moes TRV801 / Tuya TRV601 (Zigbee2MQTT)"
       }
     },
     "temperature_source": {
@@ -160,6 +165,14 @@
     "open_window_enabled": {
       "title": "Open window detection enabled",
       "description": "{name}: {entity} is on. Turn it off on the device, otherwise the quirk {quirk} on {underlying} may be disturbed."
+    },
+    "preset_keeps_changing": {
+      "title": "Radiator valve preset keeps changing",
+      "description": "{name}: the quirk {quirk} cannot keep {underlying} in the preset {preset}, it is now {current}. The quirk stopped correcting it after 3 attempts. Check what changes the preset (the device, an automation, another integration). The quirk starts again when the thermostat changes mode."
+    },
+    "outdated_converter": {
+      "title": "Zigbee2MQTT converter too old",
+      "description": "{name}: {underlying} shows the state auto while its preset is manual, so the converter of Zigbee2MQTT for this valve is out of date. Update Zigbee2MQTT. Until then the thermostat reads the wrong mode and the quirk {quirk} cannot work."
     }
   }
 }
