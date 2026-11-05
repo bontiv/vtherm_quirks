@@ -110,7 +110,7 @@ def fake_quirks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         quirks_module,
         "QUIRKS",
-        [RecordingQuirk, PowerOnlyQuirk, BoomQuirk],
+        (RecordingQuirk, PowerOnlyQuirk, BoomQuirk),
     )
     RecordingQuirk.issues = []
 
