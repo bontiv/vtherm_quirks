@@ -9,9 +9,9 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.start import async_at_started
 
 from .const import (
     CONF_TARGET_VTHERM_UNIQUE_ID,
@@ -176,15 +176,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # The VTherm picks the manager up by itself when it starts. If it
         # started before this entry, reload it once Home Assistant is up.
         @callback
-        def _on_started(_event: Event) -> None:
+        def _on_started(_hass: HomeAssistant) -> None:
             _LOGGER.debug(
                 "Home Assistant started: checking the manager of VTherm %s", target
             )
             _schedule_vtherm_reload(hass, target, only_if_missing=True)
 
-        entry.async_on_unload(
-            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_started)
-        )
+        # The cancel function of async_at_started is safe to call after the
+        # callback ran, unlike the one of async_listen_once.
+        entry.async_on_unload(async_at_started(hass, _on_started))
     return True
 
 

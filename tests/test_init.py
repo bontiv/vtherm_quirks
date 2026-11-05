@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from vtherm_api import VThermAPI
@@ -113,3 +114,23 @@ async def test_setup_fails_when_hooks_are_unavailable(hass: HomeAssistant) -> No
 def test_hooks_available_with_the_installed_api() -> None:
     """The installed vtherm_api exposes the hooks contract."""
     assert plugin.hooks_available()
+
+
+async def test_unload_after_started_does_not_remove_the_listener_twice(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The started callback is already gone when the entry unloads: no error is logged."""
+    add_vtherm_entry(hass, "vt1", name="One").mock_state(hass, ConfigEntryState.LOADED)
+    entry = plugin_entry("vt1")
+    entry.add_to_hass(hass)
+
+    hass.set_state(CoreState.not_running)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    await hass.async_start()
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert "Unable to remove unknown job listener" not in caplog.text
