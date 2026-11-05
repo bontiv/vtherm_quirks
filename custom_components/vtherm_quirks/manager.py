@@ -35,6 +35,7 @@ _ACTIVE_STATES = (ConfigEntryState.LOADED, ConfigEntryState.SETUP_IN_PROGRESS)
 
 def find_config_entry(hass: HomeAssistant, vtherm_unique_id: str) -> ConfigEntry | None:
     """Return the active entry of the plugin that targets a VTherm."""
+    checked = []
     for entry in hass.config_entries.async_entries(DOMAIN):
         if (
             entry.data.get(CONF_TARGET_VTHERM_UNIQUE_ID) == vtherm_unique_id
@@ -42,7 +43,46 @@ def find_config_entry(hass: HomeAssistant, vtherm_unique_id: str) -> ConfigEntry
             and not entry.disabled_by
         ):
             return entry
+        checked.append(
+            (
+                entry.title,
+                entry.data.get(CONF_TARGET_VTHERM_UNIQUE_ID),
+                entry.state,
+                entry.disabled_by,
+            )
+        )
+    _LOGGER.debug(
+        "No active plugin entry for VTherm %s, entries checked (title, target, state, disabled_by): %s",
+        vtherm_unique_id,
+        checked,
+    )
     return None
+
+
+def _missing_roles(quirk: BaseQuirk) -> list[str]:
+    """Keys of the required entity roles a quirk does not have."""
+    return [
+        role.key
+        for role in quirk.entity_roles()
+        if role.required and not quirk.entities.get(role.key)
+    ]
+
+
+def _describe_args(hook: str, args: tuple[Any, ...]) -> str:
+    """Short description of the arguments of a hook call, for the logs."""
+    if hook == "async_before_underlying_hvac_mode":
+        _, hvac_mode, current, cause = args
+        return f"hvac_mode={hvac_mode}, current={current}, cause={cause}"
+    command = args[0]
+    if hook == "async_after_valve_command":
+        return (
+            f"cause={getattr(command, 'cause', None)}, "
+            f"opening_degree={getattr(command, 'opening_degree', None)}, "
+            f"closing_degree={getattr(command, 'closing_degree', None)}, "
+            f"percent_open={getattr(command, 'percent_open', None)}, "
+            f"hvac_mode={getattr(command, 'hvac_mode', None)}"
+        )
+    return str(command)
 
 
 class QuirksManager:
@@ -70,8 +110,18 @@ class QuirksManager:
         self._quirks = {}
         entry = find_config_entry(self._hass, self._runtime.unique_id)
         if entry is None:
+            _LOGGER.debug(
+                "%s - post_init: no plugin entry, no quirk created", self._runtime.name
+            )
             return
         allowed = compatible_quirks(entry_infos)
+        _LOGGER.debug(
+            "%s - post_init: entry '%s', compatible quirks %s, configured %s",
+            self._runtime.name,
+            entry.title,
+            [q.quirk_id for q in allowed],
+            {u: c.get(CONF_QUIRK) for u, c in (entry.data.get(CONF_QUIRKS) or {}).items()},
+        )
         for underlying, conf in (entry.data.get(CONF_QUIRKS) or {}).items():
             quirk_cls = get_quirk(conf.get(CONF_QUIRK))
             if quirk_cls is None or quirk_cls not in allowed:
@@ -99,12 +149,45 @@ class QuirksManager:
                 conf.get(CONF_ENTITIES) or {},
                 options,
             )
+            _LOGGER.debug(
+                "%s - post_init: quirk %s created for %s, entities=%s, options=%s",
+                self._runtime.name,
+                quirk_cls.quirk_id,
+                underlying,
+                conf.get(CONF_ENTITIES) or {},
+                options,
+            )
+        for underlying, quirk in self._quirks.items():
+            if not quirk.is_configured:
+                _LOGGER.debug(
+                    "%s - post_init: quirk %s of %s is not configured, required roles missing: %s",
+                    self._runtime.name,
+                    quirk.quirk_id,
+                    underlying,
+                    _missing_roles(quirk),
+                )
+        if not self._quirks:
+            _LOGGER.debug("%s - post_init: no quirk created", self._runtime.name)
 
     async def start_listening(self, force: bool = False) -> None:
         """Start the quirks."""
         self._started = True
+        _LOGGER.debug(
+            "%s - start_listening: force=%s, quirks=%s",
+            self._runtime.name,
+            force,
+            list(self._quirks),
+        )
         for quirk in self._quirks.values():
             quirk.issue_sync_callback = self._sync_issues
+            if not quirk.is_configured:
+                _LOGGER.debug(
+                    "%s - start_listening: quirk %s of %s is not configured (missing roles: %s), hooks will be ignored",
+                    self._runtime.name,
+                    quirk.quirk_id,
+                    quirk.underlying_entity_id,
+                    _missing_roles(quirk),
+                )
             try:
                 await quirk.async_start()
             except Exception:  # pylint: disable=broad-except
@@ -115,6 +198,12 @@ class QuirksManager:
 
     def stop_listening(self) -> bool:
         """Stop the quirks. They restore their device in a background task."""
+        _LOGGER.debug(
+            "%s - stop_listening: started=%s, quirks=%s",
+            self._runtime.name,
+            self._started,
+            list(self._quirks),
+        )
         for cancel in self._listeners:
             cancel()
         self._listeners.clear()
@@ -211,14 +300,51 @@ class QuirksManager:
     async def _dispatch(
         self, hook: str, entity_ids: tuple[str | None, ...], *args: Any
     ) -> None:
+        _LOGGER.debug(
+            "%s - hook %s received for %s: %s",
+            self._runtime.name,
+            hook,
+            entity_ids,
+            _describe_args(hook, args),
+        )
         quirk = next(
             (self._quirks[e] for e in entity_ids if e and e in self._quirks), None
         )
-        if quirk is None or not quirk.is_configured:
+        if quirk is None:
+            _LOGGER.debug(
+                "%s - hook %s dropped: no quirk for %s, quirk keys: %s",
+                self._runtime.name,
+                hook,
+                entity_ids,
+                list(self._quirks),
+            )
+            return
+        if not quirk.is_configured:
+            _LOGGER.debug(
+                "%s - hook %s dropped: quirk %s of %s is not configured, missing roles: %s",
+                self._runtime.name,
+                hook,
+                quirk.quirk_id,
+                quirk.underlying_entity_id,
+                _missing_roles(quirk),
+            )
             return
         # Only forward to a quirk whose class defines the hook.
         if getattr(type(quirk), hook, None) is None:
+            _LOGGER.debug(
+                "%s - hook %s dropped: quirk %s does not define it",
+                self._runtime.name,
+                hook,
+                quirk.quirk_id,
+            )
             return
+        _LOGGER.debug(
+            "%s - hook %s forwarded to quirk %s of %s",
+            self._runtime.name,
+            hook,
+            quirk.quirk_id,
+            quirk.underlying_entity_id,
+        )
         try:
             await getattr(quirk, hook)(*args)
         except Exception:  # pylint: disable=broad-except

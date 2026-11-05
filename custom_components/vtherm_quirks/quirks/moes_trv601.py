@@ -223,6 +223,12 @@ class MoesTrv601Quirk(BaseQuirk):
         """A new preset is wanted: forget the corrections and the stuck issue."""
         if target == self._target:
             return
+        _LOGGER.debug(
+            "%s - wanted preset changes from %s to %s, corrections reset",
+            self.underlying_entity_id,
+            self._target,
+            target,
+        )
         self._target = target
         self._corrections = 0
         self._sent_target = None
@@ -234,13 +240,22 @@ class MoesTrv601Quirk(BaseQuirk):
     async def async_start(self) -> None:
         """Listen to the TRV and check its preset once at startup."""
         if self._unsub_state is not None:
+            _LOGGER.debug("%s - async_start: already started", self.underlying_entity_id)
             return
         self._unsub_state = async_track_state_change_event(
             self.hass, [self.underlying_entity_id], self._on_trv_state
         )
         if self.hass.is_running:
+            _LOGGER.debug(
+                "%s - async_start: listening to the TRV, checking the preset now",
+                self.underlying_entity_id,
+            )
             self._enforce()
         else:
+            _LOGGER.debug(
+                "%s - async_start: listening to the TRV, preset check deferred until Home Assistant has started",
+                self.underlying_entity_id,
+            )
             from homeassistant.helpers.start import async_at_started  # noqa: PLC0415
 
             self._unsub_started = async_at_started(
@@ -253,6 +268,11 @@ class MoesTrv601Quirk(BaseQuirk):
 
     async def async_stop(self) -> None:
         """Stop listening and cancel the running calls."""
+        _LOGGER.debug(
+            "%s - async_stop: %s background task(s) to cancel",
+            self.underlying_entity_id,
+            len(self._tasks),
+        )
         if self._unsub_state is not None:
             self._unsub_state()
             self._unsub_state = None
@@ -275,6 +295,11 @@ class MoesTrv601Quirk(BaseQuirk):
     ) -> None:
         """Set the preset that matches the mode, without waiting for the TRV."""
         if climate_entity_id != self.underlying_entity_id:
+            _LOGGER.debug(
+                "%s - before hvac mode ignored: climate %s is not this underlying",
+                self.underlying_entity_id,
+                climate_entity_id,
+            )
             return
         mode = str(hvac_mode)
         self._hook_mode = mode
@@ -283,11 +308,37 @@ class MoesTrv601Quirk(BaseQuirk):
         self._change_target(target)
         state = self._trv_state()
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            _LOGGER.debug("%s - TRV unavailable, preset left as is", self.underlying_entity_id)
+            _LOGGER.debug(
+                "%s - before hvac mode %s: TRV unavailable (state %s), preset left as is",
+                self.underlying_entity_id,
+                mode,
+                None if state is None else state.state,
+            )
             return
         preset = self._preset_of(state)
         if preset not in self._accepted(target):
+            _LOGGER.debug(
+                "%s - before hvac mode %s (current %s, cause %s): target preset %s, current preset %s, accepted %s: sending the preset",
+                self.underlying_entity_id,
+                mode,
+                current_hvac_mode,
+                command_cause,
+                target,
+                preset,
+                self._accepted(target),
+            )
             self._send_preset(target)
+        else:
+            _LOGGER.debug(
+                "%s - before hvac mode %s (current %s, cause %s): target preset %s, current preset %s is accepted %s: nothing sent",
+                self.underlying_entity_id,
+                mode,
+                current_hvac_mode,
+                command_cause,
+                target,
+                preset,
+                self._accepted(target),
+            )
 
     # -- TRV state tracking --------------------------------------------
     @callback
@@ -301,20 +352,56 @@ class MoesTrv601Quirk(BaseQuirk):
         state = self._trv_state()
         preset = self._preset_of(state)
         if preset is None:
+            _LOGGER.debug(
+                "%s - enforce: no usable preset (state %s), nothing to check",
+                self.underlying_entity_id,
+                None if state is None else state.state,
+            )
             return
         self._check_outdated(state, preset)
         mode = self._wanted_mode()
         if mode is None:
+            _LOGGER.debug(
+                "%s - enforce: preset %s, wanted mode unknown, nothing to check",
+                self.underlying_entity_id,
+                preset,
+            )
             return
         target = self._target_preset(mode)
         self._change_target(target)
-        if preset in self._accepted(target) or self._stuck is not None:
+        if preset in self._accepted(target):
+            _LOGGER.debug(
+                "%s - enforce: ok, state %s, preset %s, wanted mode %s, target %s, accepted %s",
+                self.underlying_entity_id,
+                None if state is None else state.state,
+                preset,
+                mode,
+                target,
+                self._accepted(target),
+            )
+            return
+        if self._stuck is not None:
+            _LOGGER.debug(
+                "%s - enforce: stuck, preset %s instead of %s, left alone until the mode changes",
+                self.underlying_entity_id,
+                preset,
+                target,
+            )
             return
         if (
             self._sent_target == target
             and self._sent_at is not None
             and self._now() - self._sent_at < RESEND_DELAY
         ):
+            _LOGGER.debug(
+                "%s - enforce: preset %s instead of %s, but %s was sent %.1fs ago (resend delay %ss), waiting",
+                self.underlying_entity_id,
+                preset,
+                target,
+                target,
+                self._now() - self._sent_at,
+                RESEND_DELAY,
+            )
             return
         if self._corrections >= MAX_CORRECTIONS:
             _LOGGER.warning(
@@ -346,6 +433,14 @@ class MoesTrv601Quirk(BaseQuirk):
             state is not None and preset == PRESET_MANUAL and state.state == PRESET_AUTO
         )
         if outdated != self._outdated:
+            _LOGGER.debug(
+                "%s - outdated converter %s -> %s (state %s, preset %s)",
+                self.underlying_entity_id,
+                self._outdated,
+                outdated,
+                None if state is None else state.state,
+                preset,
+            )
             self._outdated = outdated
             self.request_issue_sync()
 

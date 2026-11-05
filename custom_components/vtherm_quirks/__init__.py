@@ -62,6 +62,15 @@ async def _async_reload_vtherm(hass: HomeAssistant, unique_id: str) -> None:
         or vtherm_entry.domain != VTHERM_DOMAIN
         or vtherm_entry.state is not ConfigEntryState.LOADED
     ):
+        _LOGGER.debug(
+            "VTherm reload skipped for %s: entry found=%s, domain=%s (expected %s), state=%s (expected %s)",
+            unique_id,
+            vtherm_entry is not None,
+            vtherm_entry.domain if vtherm_entry is not None else None,
+            VTHERM_DOMAIN,
+            vtherm_entry.state if vtherm_entry is not None else None,
+            ConfigEntryState.LOADED,
+        )
         return
     _LOGGER.debug("Reloading VTherm %s", vtherm_entry.title)
     await hass.config_entries.async_reload(vtherm_entry.entry_id)
@@ -76,8 +85,24 @@ def _schedule_vtherm_reload(
     async def _reload() -> None:
         if only_if_missing:
             entity = _find_vtherm_entity(hass, unique_id)
-            if entity is None or entity.get_feature_manager(FACTORY_NAME) is not None:
+            if entity is None:
+                _LOGGER.debug(
+                    "VTherm %s: climate entity not found, reload skipped (only_if_missing)",
+                    unique_id,
+                )
                 return
+            if entity.get_feature_manager(FACTORY_NAME) is not None:
+                _LOGGER.debug(
+                    "VTherm %s: manager %s already present, reload skipped (only_if_missing)",
+                    unique_id,
+                    FACTORY_NAME,
+                )
+                return
+            _LOGGER.debug(
+                "VTherm %s: manager %s missing, reloading it", unique_id, FACTORY_NAME
+            )
+        else:
+            _LOGGER.debug("VTherm %s: reload requested", unique_id)
         await _async_reload_vtherm(hass, unique_id)
 
     hass.async_create_task(_reload(), f"vtherm_quirks reload {unique_id}")
@@ -85,7 +110,15 @@ def _schedule_vtherm_reload(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Register the factory and make the targeted VTherm pick up its manager."""
-    if not hooks_available():
+    _LOGGER.debug(
+        "Setting up entry '%s' (%s), target VTherm %s",
+        entry.title,
+        entry.entry_id,
+        entry.data.get(CONF_TARGET_VTHERM_UNIQUE_ID),
+    )
+    available = hooks_available()
+    _LOGGER.debug("hooks_available=%s", available)
+    if not available:
         ir.async_create_issue(
             hass,
             DOMAIN,
@@ -107,6 +140,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     api = VThermAPI.get_vtherm_api(hass)
     if api is None:
+        _LOGGER.debug("VThermAPI not found, setup of '%s' aborted", entry.title)
         return False
 
     domain_data = hass.data.setdefault(DOMAIN, {})
@@ -114,19 +148,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         factory = QuirksManagerFactory()
         if api.get_feature_manager(factory.name) is None:
             api.register_feature_manager(factory)
+            _LOGGER.debug("Factory %s created and registered in the API", factory.name)
+        else:
+            _LOGGER.debug(
+                "Factory %s created but already registered in the API, not registered again",
+                factory.name,
+            )
         domain_data[DATA_FACTORY] = factory
+    else:
+        _LOGGER.debug("Factory %s reused", FACTORY_NAME)
 
     async_check_entry(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
 
     target = entry.data[CONF_TARGET_VTHERM_UNIQUE_ID]
     if hass.is_running:
+        _LOGGER.debug(
+            "Home Assistant is running: scheduling the reload of VTherm %s if its manager is missing",
+            target,
+        )
         _schedule_vtherm_reload(hass, target, only_if_missing=True)
     else:
+        _LOGGER.debug(
+            "Home Assistant is not running: the reload of VTherm %s is deferred to the started event",
+            target,
+        )
         # The VTherm picks the manager up by itself when it starts. If it
         # started before this entry, reload it once Home Assistant is up.
         @callback
         def _on_started(_event: Event) -> None:
+            _LOGGER.debug(
+                "Home Assistant started: checking the manager of VTherm %s", target
+            )
             _schedule_vtherm_reload(hass, target, only_if_missing=True)
 
         entry.async_on_unload(
@@ -141,6 +194,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     from .repairs import async_clear_issues, entry_scope  # noqa: PLC0415
 
+    _LOGGER.debug("Unloading entry '%s' (%s)", entry.title, entry.entry_id)
     async_clear_issues(hass, entry_scope(entry))
 
     others_loaded = any(
@@ -152,9 +206,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if api is not None:
             api.unregister_feature_manager(FACTORY_NAME)
         hass.data.get(DOMAIN, {}).pop(DATA_FACTORY, None)
+        _LOGGER.debug("No other entry loaded: factory %s unregistered", FACTORY_NAME)
+    else:
+        _LOGGER.debug("Other entries still loaded: factory %s kept", FACTORY_NAME)
 
     if not hass.is_stopping:
         _schedule_vtherm_reload(hass, entry.data[CONF_TARGET_VTHERM_UNIQUE_ID])
+    else:
+        _LOGGER.debug("Home Assistant is stopping: no reload of the VTherm")
     return True
 
 
@@ -162,5 +221,6 @@ async def _async_entry_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """The quirks of an entry changed: reload only the VTherm it targets."""
     from .repairs import async_check_entry  # noqa: PLC0415
 
+    _LOGGER.debug("Entry '%s' updated, reloading its VTherm", entry.title)
     async_check_entry(hass, entry)
     _schedule_vtherm_reload(hass, entry.data[CONF_TARGET_VTHERM_UNIQUE_ID])

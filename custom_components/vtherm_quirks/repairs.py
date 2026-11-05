@@ -8,6 +8,7 @@ fixable by a flow: the user has to change the VTherm or the device settings.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
@@ -25,6 +26,8 @@ from .const import (
     VTHERM_DOMAIN,
 )
 from .quirks import compatible_quirks, get_quirk
+
+_LOGGER = logging.getLogger(__name__)
 
 ISSUE_HOOKS_UNAVAILABLE = "hooks_unavailable"
 ISSUE_UNKNOWN_QUIRK = "unknown_quirk"
@@ -54,8 +57,10 @@ def async_sync_issues(
     known = _known(hass)
     current = {issue.issue_id for issue in issues}
     for stale in known.get(scope, set()) - current:
+        _LOGGER.debug("Issue cleared: %s (scope %s)", stale, scope)
         ir.async_delete_issue(hass, DOMAIN, stale)
     for issue in issues:
+        _LOGGER.debug("Issue created: %s (scope %s)", issue.issue_id, scope)
         ir.async_create_issue(
             hass,
             DOMAIN,
