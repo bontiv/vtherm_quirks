@@ -1,0 +1,165 @@
+{
+  "title": "Versatile Thermostat Quirks",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Choose the thermostat",
+        "description": "Select the Versatile Thermostat to apply device quirks to. Only thermostats compatible with at least one quirk are listed.",
+        "data": {
+          "target_vtherm_unique_id": "Versatile Thermostat"
+        }
+      },
+      "quirk": {
+        "title": "Quirk of the underlying",
+        "description": "Underlying: {underlying}\nDetected quirk: {detected}\n\nChoose the quirk to apply to this underlying, or None.",
+        "data": {
+          "quirk": "Quirk"
+        }
+      },
+      "entities": {
+        "title": "Entities of the quirk {quirk}",
+        "description": "Check the entities of the device {underlying}. They are prefilled from the device. On ZHA, the valve entities are disabled by default: enable them first.",
+        "data": {
+          "heating_position": "Heating valve position",
+          "idle_position": "Idle valve position",
+          "external_temperature": "External temperature",
+          "sensor_select": "Temperature sensor",
+          "adaptive_control": "Adaptive / smart temperature control (optional)",
+          "open_window": "Open window detection (optional)"
+        },
+        "data_description": {
+          "heating_position": "Zigbee2MQTT: heating_valve_position. ZHA: Valve opening degree. It must be the opening degree entity of the thermostat.",
+          "idle_position": "Zigbee2MQTT: idle_valve_position. ZHA: Valve closing degree. On this device it is the idle opening, not a closing degree.",
+          "external_temperature": "Zigbee2MQTT: external_temperature_input. ZHA: External temperature sensor value.",
+          "sensor_select": "Zigbee2MQTT: the temperature sensor select. ZHA: the External temperature sensor switch.",
+          "adaptive_control": "Only used to report a setting that prevents the quirk from working.",
+          "open_window": "Only used to report a setting that prevents the quirk from working."
+        }
+      },
+      "options": {
+        "title": "Options of the quirk {quirk}",
+        "description": "Options for the device {underlying}.",
+        "data": {
+          "temperature_source": "Normal temperature source",
+          "delta": "Temperature delta",
+          "pulse_delay": "Kick duration",
+          "hot_step": "Hot step"
+        },
+        "data_description": {
+          "temperature_source": "Temperature source restored after the kick. Use Remote only if another automation feeds the external temperature: its last value is then restored.",
+          "delta": "Gap between the TRV setpoint and the fake temperature. Must be higher than the TRV temperature accuracy.",
+          "pulse_delay": "Time to let the TRV react before restoring the temperature sensor.",
+          "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "A quirks entry already exists for this thermostat. Use its options to change it.",
+      "no_vtherm": "No Versatile Thermostat without quirks is compatible with an available quirk. A quirk needs for example an over_climate thermostat with direct valve control.",
+      "no_quirk_selected": "No quirk was selected. Delete the entry if you do not need it anymore."
+    }
+  },
+  "options": {
+    "step": {
+      "quirk": {
+        "title": "Quirk of the underlying",
+        "description": "Underlying: {underlying}\nDetected quirk: {detected}\n\nChoose the quirk to apply to this underlying, or None.",
+        "data": {
+          "quirk": "Quirk"
+        }
+      },
+      "entities": {
+        "title": "Entities of the quirk {quirk}",
+        "description": "Check the entities of the device {underlying}. They are prefilled from the device. On ZHA, the valve entities are disabled by default: enable them first.",
+        "data": {
+          "heating_position": "Heating valve position",
+          "idle_position": "Idle valve position",
+          "external_temperature": "External temperature",
+          "sensor_select": "Temperature sensor",
+          "adaptive_control": "Adaptive / smart temperature control (optional)",
+          "open_window": "Open window detection (optional)"
+        },
+        "data_description": {
+          "heating_position": "Zigbee2MQTT: heating_valve_position. ZHA: Valve opening degree. It must be the opening degree entity of the thermostat.",
+          "idle_position": "Zigbee2MQTT: idle_valve_position. ZHA: Valve closing degree. On this device it is the idle opening, not a closing degree.",
+          "external_temperature": "Zigbee2MQTT: external_temperature_input. ZHA: External temperature sensor value.",
+          "sensor_select": "Zigbee2MQTT: the temperature sensor select. ZHA: the External temperature sensor switch.",
+          "adaptive_control": "Only used to report a setting that prevents the quirk from working.",
+          "open_window": "Only used to report a setting that prevents the quirk from working."
+        }
+      },
+      "options": {
+        "title": "Options of the quirk {quirk}",
+        "description": "Options for the device {underlying}.",
+        "data": {
+          "temperature_source": "Normal temperature source",
+          "delta": "Temperature delta",
+          "pulse_delay": "Kick duration",
+          "hot_step": "Hot step"
+        },
+        "data_description": {
+          "temperature_source": "Temperature source restored after the kick. Use Remote only if another automation feeds the external temperature: its last value is then restored.",
+          "delta": "Gap between the TRV setpoint and the fake temperature. Must be higher than the TRV temperature accuracy.",
+          "pulse_delay": "Time to let the TRV react before restoring the temperature sensor.",
+          "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it."
+        }
+      }
+    },
+    "abort": {
+      "no_quirk_selected": "No quirk was selected. Delete the entry if you do not need it anymore.",
+      "vtherm_not_found": "The Versatile Thermostat of this entry was not found."
+    }
+  },
+  "selector": {
+    "quirk": {
+      "options": {
+        "none": "None",
+        "sonoff_trv_zbt": "Sonoff TRV-ZBT"
+      }
+    },
+    "temperature_source": {
+      "options": {
+        "local": "Local (built-in sensor)",
+        "remote": "Remote (external temperature entity)"
+      }
+    }
+  },
+  "issues": {
+    "hooks_unavailable": {
+      "title": "Versatile Thermostat Quirks cannot start",
+      "description": "The installed vtherm_api does not provide the underlying hooks. Update Versatile Thermostat (vtherm_api 0.9.0 or later is required), then restart Home Assistant."
+    },
+    "unknown_quirk": {
+      "title": "Unknown quirk",
+      "description": "The quirk {quirk} configured for {underlying} of {name} does not exist in this version of the plugin. It is ignored. Reconfigure or delete the entry."
+    },
+    "incompatible_quirk": {
+      "title": "Incompatible quirk",
+      "description": "The quirk {quirk} configured for {underlying} is not compatible with the configuration of {name} (type of thermostat or valve control). It is ignored."
+    },
+    "sync_device_internal_temp": {
+      "title": "Device temperature synchronization enabled",
+      "description": "{name}: the quirk {quirk} on {underlying} needs the device temperature synchronization disabled in the thermostat, because it uses the external temperature of the device."
+    },
+    "closing_entity_configured": {
+      "title": "Closing degree entity configured",
+      "description": "{name}: {entity} is configured as closing degree entity. With the quirk {quirk} on {underlying}, remove it: on this device it is the idle opening, which the quirk manages."
+    },
+    "opening_entity_mismatch": {
+      "title": "Opening degree entity mismatch",
+      "description": "{name}: the opening degree entity is {entity} but the quirk {quirk} on {underlying} expects {expected}."
+    },
+    "entity_disabled": {
+      "title": "Entity disabled",
+      "description": "{name}: the entity {entity} needed by the quirk {quirk} on {underlying} is disabled. Enable it in the entity settings."
+    },
+    "adaptive_control_enabled": {
+      "title": "Adaptive temperature control enabled",
+      "description": "{name}: {entity} is on. Turn it off on the device, otherwise the quirk {quirk} on {underlying} cannot move the valve."
+    },
+    "open_window_enabled": {
+      "title": "Open window detection enabled",
+      "description": "{name}: {entity} is on. Turn it off on the device, otherwise the quirk {quirk} on {underlying} may be disturbed."
+    }
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "title": "Versatile Thermostat Quirks",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Thermostat auswählen",
+        "description": "Wähle den Versatile Thermostat, auf den Geräte-Quirks angewendet werden. Es werden nur Thermostate aufgelistet, die mit mindestens einem Quirk kompatibel sind.",
+        "data": {
+          "target_vtherm_unique_id": "Versatile Thermostat"
+        }
+      },
+      "quirk": {
+        "title": "Quirk des Unterliegenden",
+        "description": "Unterliegendes Gerät: {underlying}\nErkannter Quirk: {detected}\n\nWähle den Quirk für dieses Gerät oder Keiner.",
+        "data": {
+          "quirk": "Quirk"
+        }
+      },
+      "entities": {
+        "title": "Entitäten des Quirks {quirk}",
+        "description": "Prüfe die Entitäten des Geräts {underlying}. Sie werden aus dem Gerät vorausgefüllt. Bei ZHA sind die Ventil-Entitäten standardmäßig deaktiviert: aktiviere sie zuerst.",
+        "data": {
+          "heating_position": "Ventilposition beim Heizen",
+          "idle_position": "Ventilposition im Leerlauf",
+          "external_temperature": "Externe Temperatur",
+          "sensor_select": "Temperatursensor",
+          "adaptive_control": "Adaptive Temperaturregelung (optional)",
+          "open_window": "Fenster-offen-Erkennung (optional)"
+        },
+        "data_description": {
+          "heating_position": "Zigbee2MQTT: heating_valve_position. ZHA: Valve opening degree. Muss die Öffnungsgrad-Entität des Thermostats sein.",
+          "idle_position": "Zigbee2MQTT: idle_valve_position. ZHA: Valve closing degree. Bei diesem Gerät ist es die Öffnung im Leerlauf, kein Schließgrad.",
+          "external_temperature": "Zigbee2MQTT: external_temperature_input. ZHA: External temperature sensor value.",
+          "sensor_select": "Zigbee2MQTT: die Auswahl des Temperatursensors. ZHA: der Schalter External temperature sensor.",
+          "adaptive_control": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert.",
+          "open_window": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert."
+        }
+      },
+      "options": {
+        "title": "Optionen des Quirks {quirk}",
+        "description": "Optionen für das Gerät {underlying}.",
+        "data": {
+          "temperature_source": "Normale Temperaturquelle",
+          "delta": "Temperaturdifferenz",
+          "pulse_delay": "Dauer des Kicks",
+          "hot_step": "Heißer Schritt"
+        },
+        "data_description": {
+          "temperature_source": "Temperaturquelle, die nach dem Kick wiederhergestellt wird. Remote nur wählen, wenn eine andere Automatisierung die externe Temperatur liefert: ihr letzter Wert wird dann wiederhergestellt.",
+          "delta": "Abstand zwischen dem Sollwert des TRV und der falschen Temperatur. Muss größer als die Temperaturgenauigkeit des TRV sein.",
+          "pulse_delay": "Zeit, die dem TRV zum Reagieren bleibt, bevor der Temperatursensor wiederhergestellt wird.",
+          "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Für diesen Thermostat existiert bereits ein Quirks-Eintrag. Ändere ihn über seine Optionen.",
+      "no_vtherm": "Kein Versatile Thermostat ohne Quirks ist mit einem verfügbaren Quirk kompatibel. Ein Quirk benötigt zum Beispiel einen over_climate-Thermostat mit direkter Ventilsteuerung.",
+      "no_quirk_selected": "Es wurde kein Quirk gewählt. Lösche den Eintrag, wenn du ihn nicht mehr brauchst."
+    }
+  },
+  "options": {
+    "step": {
+      "quirk": {
+        "title": "Quirk des Unterliegenden",
+        "description": "Unterliegendes Gerät: {underlying}\nErkannter Quirk: {detected}\n\nWähle den Quirk für dieses Gerät oder Keiner.",
+        "data": {
+          "quirk": "Quirk"
+        }
+      },
+      "entities": {
+        "title": "Entitäten des Quirks {quirk}",
+        "description": "Prüfe die Entitäten des Geräts {underlying}. Sie werden aus dem Gerät vorausgefüllt. Bei ZHA sind die Ventil-Entitäten standardmäßig deaktiviert: aktiviere sie zuerst.",
+        "data": {
+          "heating_position": "Ventilposition beim Heizen",
+          "idle_position": "Ventilposition im Leerlauf",
+          "external_temperature": "Externe Temperatur",
+          "sensor_select": "Temperatursensor",
+          "adaptive_control": "Adaptive Temperaturregelung (optional)",
+          "open_window": "Fenster-offen-Erkennung (optional)"
+        },
+        "data_description": {
+          "heating_position": "Zigbee2MQTT: heating_valve_position. ZHA: Valve opening degree. Muss die Öffnungsgrad-Entität des Thermostats sein.",
+          "idle_position": "Zigbee2MQTT: idle_valve_position. ZHA: Valve closing degree. Bei diesem Gerät ist es die Öffnung im Leerlauf, kein Schließgrad.",
+          "external_temperature": "Zigbee2MQTT: external_temperature_input. ZHA: External temperature sensor value.",
+          "sensor_select": "Zigbee2MQTT: die Auswahl des Temperatursensors. ZHA: der Schalter External temperature sensor.",
+          "adaptive_control": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert.",
+          "open_window": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert."
+        }
+      },
+      "options": {
+        "title": "Optionen des Quirks {quirk}",
+        "description": "Optionen für das Gerät {underlying}.",
+        "data": {
+          "temperature_source": "Normale Temperaturquelle",
+          "delta": "Temperaturdifferenz",
+          "pulse_delay": "Dauer des Kicks",
+          "hot_step": "Heißer Schritt"
+        },
+        "data_description": {
+          "temperature_source": "Temperaturquelle, die nach dem Kick wiederhergestellt wird. Remote nur wählen, wenn eine andere Automatisierung die externe Temperatur liefert: ihr letzter Wert wird dann wiederhergestellt.",
+          "delta": "Abstand zwischen dem Sollwert des TRV und der falschen Temperatur. Muss größer als die Temperaturgenauigkeit des TRV sein.",
+          "pulse_delay": "Zeit, die dem TRV zum Reagieren bleibt, bevor der Temperatursensor wiederhergestellt wird.",
+          "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht."
+        }
+      }
+    },
+    "abort": {
+      "no_quirk_selected": "Es wurde kein Quirk gewählt. Lösche den Eintrag, wenn du ihn nicht mehr brauchst.",
+      "vtherm_not_found": "Der Versatile Thermostat dieses Eintrags wurde nicht gefunden."
+    }
+  },
+  "selector": {
+    "quirk": {
+      "options": {
+        "none": "Keiner",
+        "sonoff_trv_zbt": "Sonoff TRV-ZBT"
+      }
+    },
+    "temperature_source": {
+      "options": {
+        "local": "Lokal (eingebauter Sensor)",
+        "remote": "Remote (Entität der externen Temperatur)"
+      }
+    }
+  },
+  "issues": {
+    "hooks_unavailable": {
+      "title": "Versatile Thermostat Quirks kann nicht starten",
+      "description": "Das installierte vtherm_api stellt die Hooks der Unterliegenden nicht bereit. Aktualisiere Versatile Thermostat (vtherm_api 0.9.0 oder neuer ist erforderlich) und starte Home Assistant neu."
+    },
+    "unknown_quirk": {
+      "title": "Unbekannter Quirk",
+      "description": "Der Quirk {quirk}, konfiguriert für {underlying} von {name}, existiert in dieser Version des Plugins nicht. Er wird ignoriert. Konfiguriere den Eintrag neu oder lösche ihn."
+    },
+    "incompatible_quirk": {
+      "title": "Inkompatibler Quirk",
+      "description": "Der Quirk {quirk}, konfiguriert für {underlying}, ist nicht mit der Konfiguration von {name} kompatibel (Thermostattyp oder Ventilsteuerung). Er wird ignoriert."
+    },
+    "sync_device_internal_temp": {
+      "title": "Temperatursynchronisation des Geräts aktiviert",
+      "description": "{name}: Der Quirk {quirk} auf {underlying} benötigt die deaktivierte Temperatursynchronisation des Geräts im Thermostat, da er die externe Temperatur des Geräts verwendet."
+    },
+    "closing_entity_configured": {
+      "title": "Schließgrad-Entität konfiguriert",
+      "description": "{name}: {entity} ist als Schließgrad-Entität konfiguriert. Entferne sie beim Quirk {quirk} auf {underlying}: Bei diesem Gerät ist es die Öffnung im Leerlauf, die der Quirk verwaltet."
+    },
+    "opening_entity_mismatch": {
+      "title": "Abweichende Öffnungsgrad-Entität",
+      "description": "{name}: Die Öffnungsgrad-Entität ist {entity}, der Quirk {quirk} auf {underlying} erwartet aber {expected}."
+    },
+    "entity_disabled": {
+      "title": "Entität deaktiviert",
+      "description": "{name}: Die vom Quirk {quirk} auf {underlying} benötigte Entität {entity} ist deaktiviert. Aktiviere sie in den Entitätseinstellungen."
+    },
+    "adaptive_control_enabled": {
+      "title": "Adaptive Temperaturregelung aktiviert",
+      "description": "{name}: {entity} ist eingeschaltet. Schalte es am Gerät aus, sonst kann der Quirk {quirk} auf {underlying} das Ventil nicht bewegen."
+    },
+    "open_window_enabled": {
+      "title": "Fenster-offen-Erkennung aktiviert",
+      "description": "{name}: {entity} ist eingeschaltet. Schalte es am Gerät aus, sonst kann der Quirk {quirk} auf {underlying} gestört werden."
+    }
+  }
+}
