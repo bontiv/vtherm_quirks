@@ -42,47 +42,14 @@ from homeassistant.helpers.selector import (
 from ..const import (
     CAUSE_REGULATION,
     CAUSE_TURN_OFF,
-    DEFAULT_DELTA,
-    DEFAULT_PULSE_DELAY,
     HVAC_OFF,
-    MAX_DELTA,
-    MAX_PULSE_DELAY,
-    MIN_DELTA,
-    MIN_PULSE_DELAY,
-    OPT_DELTA,
-    OPT_HOT_STEP,
-    OPT_PULSE_DELAY,
-    OPT_TEMPERATURE_SOURCE,
     SCOPE_OVER_CLIMATE_VALVE,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
-    TEMPERATURE_SOURCE_LOCAL,
-    TEMPERATURE_SOURCE_REMOTE,
-    TRV_ZBT_MANUFACTURER,
-    TRV_ZBT_MAX_EXTERNAL_TEMPERATURE,
-    TRV_ZBT_MIN_EXTERNAL_TEMPERATURE,
-    TRV_ZBT_MODEL,
     UNDERLYING_CLIMATE,
     VT_CONF_CLOSING_DEGREE_LIST,
     VT_CONF_OPENING_DEGREE_LIST,
     VT_CONF_SYNC_DEVICE_INTERNAL_TEMP,
-    Z2M_ADAPTIVE_CONTROL,
-    Z2M_EXTERNAL_TEMPERATURE,
-    Z2M_HEATING_POSITION,
-    Z2M_IDLE_POSITION,
-    Z2M_OPEN_WINDOW,
-    Z2M_PLATFORM,
-    Z2M_SENSOR_LOCAL_OPTION,
-    Z2M_SENSOR_REMOTE_OPTION,
-    Z2M_SENSOR_SELECT,
-    ZHA_ADAPTIVE_CONTROL,
-    ZHA_EXTERNAL_TEMPERATURE,
-    ZHA_HEATING_POSITION,
-    ZHA_IDLE_POSITION,
-    ZHA_OPEN_WINDOW,
-    ZHA_PLATFORM,
-    ZHA_SENSOR_SWITCH,
-    ZHA_SENSOR_SWITCH_ATTRIBUTE,
 )
 from .base import BaseQuirk, EntityRole, QuirkIssue
 
@@ -91,6 +58,62 @@ if TYPE_CHECKING:
     from vtherm_api import InterfaceThermostatRuntime, ValveCommand
 
 _LOGGER = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Sonoff TRV-ZBT
+#
+# Verified = read in the sources of ZHA (zigpy/zha device dump of the TRV-ZBT
+# and zigpy/zha-device-handlers zhaquirks/sonoff/trvzb.py) and of Zigbee2MQTT
+# (zigbee-herdsman-converters src/devices/sonoff.ts).
+# ---------------------------------------------------------------------------
+TRV_ZBT_MANUFACTURER = "SONOFF"  # verified (ZHA and Z2M)
+TRV_ZBT_MODEL = "TRV-ZBT"  # verified (ZHA model, Z2M zigbeeModel/model)
+
+# Zigbee2MQTT: the exposes names are verified. The entity registry unique_id of
+# a Z2M entity is "<ieee>_<expose name>_<base topic>" (from the Home Assistant
+# MQTT discovery of Z2M, not re-read in the Z2M sources): it is matched by
+# "contains _<name>_" or "ends with _<name>".
+Z2M_PLATFORM = "mqtt"
+Z2M_HEATING_POSITION = "heating_valve_position"  # verified
+Z2M_IDLE_POSITION = "idle_valve_position"  # verified
+Z2M_EXTERNAL_TEMPERATURE = "external_temperature_input"  # verified
+Z2M_SENSOR_SELECT = "temperature_sensor_select"  # verified
+Z2M_SENSOR_LOCAL_OPTION = "local_temperature"  # verified
+Z2M_SENSOR_REMOTE_OPTION = "remote_temperature"  # verified
+Z2M_ADAPTIVE_CONTROL = "smart_temperature_control"  # name taken from the Z2M docs, not re-read
+Z2M_OPEN_WINDOW = "open_window"  # verified
+
+# ZHA: translation keys of the entities (verified in the TRV-ZBT device dump and
+# in the quirk). The attribute names are the unique_id suffix of these entities
+# (ZHA unique_id = "<ieee>-<endpoint>-<cluster>-<attribute>"): used as a
+# fallback only, not verified against a real entity registry.
+ZHA_PLATFORM = "zha"
+ZHA_HEATING_POSITION = "valve_opening_degree"  # verified: "Valve opening degree"
+ZHA_IDLE_POSITION = "valve_closing_degree"  # verified: "Valve closing degree"
+ZHA_EXTERNAL_TEMPERATURE = "external_temperature_sensor_value"  # verified
+ZHA_SENSOR_SWITCH = "external_temperature_sensor"  # verified (a switch)
+ZHA_SENSOR_SWITCH_ATTRIBUTE = "external_temperature_sensor_enable"  # fallback, quirk attribute
+ZHA_ADAPTIVE_CONTROL = "adaptive_mode"  # verified (a switch, on = adaptive)
+ZHA_OPEN_WINDOW = "open_window"  # verified (a switch)
+
+# Quirk options
+OPT_TEMPERATURE_SOURCE = "temperature_source"
+OPT_DELTA = "delta"
+OPT_PULSE_DELAY = "pulse_delay"
+OPT_HOT_STEP = "hot_step"
+
+TEMPERATURE_SOURCE_LOCAL = "local"
+TEMPERATURE_SOURCE_REMOTE = "remote"
+
+DEFAULT_DELTA = 2.0
+MIN_DELTA = 1.2
+MAX_DELTA = 5.0
+DEFAULT_PULSE_DELAY = 5
+MIN_PULSE_DELAY = 1
+MAX_PULSE_DELAY = 60
+# Range of external_temperature_input of the TRV-ZBT.
+TRV_ZBT_MIN_EXTERNAL_TEMPERATURE = 0.0
+TRV_ZBT_MAX_EXTERNAL_TEMPERATURE = 99.9
 
 # Roles of the quirk
 ROLE_HEATING_POSITION = "heating_position"
