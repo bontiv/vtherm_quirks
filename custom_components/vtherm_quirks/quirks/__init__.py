@@ -26,8 +26,11 @@ from ..const import (
     VT_THERMOSTAT_VALVE,
 )
 from .base import BaseQuirk, EntityRole, QuirkIssue
+from .sonoff_trv_zbt import SonoffTrvZbtQuirk
 
-QUIRKS: list[type[BaseQuirk]] = []
+QUIRKS: list[type[BaseQuirk]] = [
+    SonoffTrvZbtQuirk,
+]
 
 __all__ = [
     "QUIRKS",
