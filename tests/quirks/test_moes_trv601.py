@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,6 +17,10 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.device_registry import DeviceEntry
 from pytest_homeassistant.common import MockConfigEntry
+from vtherm_api import (
+    UNSUPPORTED_HVAC_MODE,
+    InterfaceUnderlyingHvacModeMapper,
+)
 
 from custom_components.vtherm_quirks.const import DOMAIN
 from custom_components.vtherm_quirks.manager import QuirksManager
@@ -173,10 +179,14 @@ async def test_discovery_and_detection(hass: HomeAssistant) -> None:
 
 
 def test_roles_and_options() -> None:
-    """No entity role, one option that defaults to False."""
+    """No entity role, two options that default to False."""
     assert MoesTrv601Quirk.entity_roles() == []
-    assert MoesTrv601Quirk.resolve_options({}) == {"keep_schedule": False}
-    assert MoesTrv601Quirk.resolve_options({"keep_schedule": True}) == {"keep_schedule": True}
+    assert MoesTrv601Quirk.resolve_options({}) == {"keep_schedule": False, "legacy_converter": False}
+    assert MoesTrv601Quirk.resolve_options({"keep_schedule": True}) == {
+        "keep_schedule": True,
+        "legacy_converter": False,
+    }
+    assert MoesTrv601Quirk.resolve_options({"legacy_converter": True})["legacy_converter"] is True
     quirk = MoesTrv601Quirk(None, None, CLIMATE, {}, {})  # type: ignore[arg-type]
     assert quirk.is_configured
 
@@ -516,6 +526,94 @@ async def test_outdated_converter_reaches_the_repairs(hass: HomeAssistant) -> No
 
 
 # ---------------------------------------------------------------------------
+# Legacy converter
+# ---------------------------------------------------------------------------
+async def test_no_translation_without_the_option(hass: HomeAssistant) -> None:
+    quirk, _, _ = make_quirk(hass)
+    for mode in ("heat", "auto", "off", "cool"):
+        assert quirk.to_underlying_hvac_mode(CLIMATE, mode) is None
+        assert quirk.from_underlying_hvac_mode(CLIMATE, mode) is None
+
+
+async def test_legacy_converter_translates_the_modes(hass: HomeAssistant) -> None:
+    """heat is sent auto, auto is read heat, heat is read unsupported, off is never touched."""
+    quirk, _, _ = make_quirk(hass, legacy_converter=True)
+    assert quirk.to_underlying_hvac_mode(CLIMATE, "heat") == "auto"
+    assert quirk.to_underlying_hvac_mode(CLIMATE, "off") is None
+    assert quirk.to_underlying_hvac_mode(CLIMATE, "cool") is None
+    assert quirk.from_underlying_hvac_mode(CLIMATE, "auto") == "heat"
+    assert quirk.from_underlying_hvac_mode(CLIMATE, "heat") == UNSUPPORTED_HVAC_MODE
+    assert quirk.from_underlying_hvac_mode(CLIMATE, "off") is None
+    assert quirk.from_underlying_hvac_mode(CLIMATE, "cool") is None
+    # The translation is reversible on the modes it touches.
+    assert quirk.from_underlying_hvac_mode(CLIMATE, quirk.to_underlying_hvac_mode(CLIMATE, "heat")) == "heat"
+    # Another climate is not translated.
+    assert quirk.to_underlying_hvac_mode("climate.other", "heat") is None
+    assert quirk.from_underlying_hvac_mode("climate.other", "auto") is None
+
+
+async def test_legacy_converter_does_not_report_the_converter(hass: HomeAssistant) -> None:
+    """Preset manual shown as auto is expected with the option: no issue, no correction."""
+    quirk, sim, _ = make_quirk(hass, legacy_converter=True)
+    syncs: list[None] = []
+    quirk.issue_sync_callback = lambda: syncs.append(None)
+    sim.set("manual", hvac="auto")
+    await quirk.async_start()
+    await flush()
+    assert quirk.check_configuration() == []
+    assert syncs == []
+    assert sim.calls == []
+    await quirk.async_stop()
+
+
+async def test_legacy_converter_still_drives_the_preset(hass: HomeAssistant) -> None:
+    """The hook receives the mode really sent (auto for heat): the preset logic is unchanged."""
+    quirk, sim, _ = make_quirk(hass, legacy_converter=True)
+    sim.set("on", hvac="heat")  # forced open valve, shown heat by the legacy converter
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "auto", "heat", None)
+    await flush()
+    assert sim.calls == ["manual"]
+    sim.set("manual", hvac="auto")
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "off", "auto", None)
+    await flush()
+    assert sim.calls == ["manual", "off"]
+
+
+async def test_manager_routes_the_translation_to_the_quirk(hass: HomeAssistant) -> None:
+    """Through the manager, the option decides whether the mode is translated."""
+    add_vtherm_entry(hass)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "target_vtherm_unique_id": VTHERM_ENTRY_ID,
+            "quirks": {
+                CLIMATE: {"quirk": "moes_trv601", "entities": {}, "options": {"legacy_converter": True}}
+            },
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    runtime = FakeRuntime(hass)
+    manager = QuirksManager(runtime)  # type: ignore[arg-type]
+    manager.post_init(runtime.entry_infos)
+    assert isinstance(manager, InterfaceUnderlyingHvacModeMapper)
+    assert manager.to_underlying_hvac_mode(CLIMATE, "heat") == "auto"
+    assert manager.from_underlying_hvac_mode(CLIMATE, "auto") == "heat"
+    assert manager.from_underlying_hvac_mode(CLIMATE, "heat") == UNSUPPORTED_HVAC_MODE
+    assert manager.to_underlying_hvac_mode("climate.other", "heat") is None
+
+
+@pytest.mark.parametrize("lang", ["en", "fr", "de"])
+def test_outdated_converter_issue_suggests_the_option(lang: str) -> None:
+    """The text of the issue names the option, as the config flow labels it."""
+    path = Path(__file__).parents[2] / "custom_components" / "vtherm_quirks" / "translations" / f"{lang}.json"
+    texts = json.loads(path.read_text(encoding="utf-8"))
+    label = texts["config"]["step"]["options"]["data"]["legacy_converter"]
+    assert label in texts["issues"]["outdated_converter"]["description"]
+
+
+# ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
 async def test_startup_corrects_forced_preset(hass: HomeAssistant) -> None:
@@ -574,11 +672,15 @@ async def test_config_flow_without_entity_step(hass: HomeAssistant) -> None:
         result["flow_id"], {"quirk": "moes_trv601"}
     )
     assert result["step_id"] == "options"
-    assert result["data_schema"]({}) == {"keep_schedule": False}
+    assert result["data_schema"]({}) == {"keep_schedule": False, "legacy_converter": False}
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"keep_schedule": True}
+        result["flow_id"], {"keep_schedule": True, "legacy_converter": True}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"]["quirks"] == {
-        climate: {"quirk": "moes_trv601", "entities": {}, "options": {"keep_schedule": True}}
+        climate: {
+            "quirk": "moes_trv601",
+            "entities": {},
+            "options": {"keep_schedule": True, "legacy_converter": True},
+        }
     }

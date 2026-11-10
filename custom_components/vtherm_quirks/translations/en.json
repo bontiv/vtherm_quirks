@@ -53,6 +53,7 @@
           "pulse_delay": "Kick duration",
           "hot_step": "Hot step",
           "keep_schedule": "Keep the schedule of the TRV",
+          "legacy_converter": "Legacy Zigbee2MQTT converter",
           "restore_setpoint": "Restore the setpoint",
           "pre_open": "Pre-opening before a full close",
           "slam_delay": "Pre-opening duration"
@@ -63,6 +64,7 @@
           "pulse_delay": "Time to let the TRV react before restoring the temperature sensor.",
           "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it.",
           "keep_schedule": "Accept the schedule preset of the TRV (auto) when the thermostat heats. The other presets are always corrected.",
+          "legacy_converter": "Enable it if your Zigbee2MQTT converter is old: it shows the preset manual as the mode auto. The mode heat is then sent as auto, auto is read as heat, and heat (valve forced open) is not supported.",
           "restore_setpoint": "When the TRV is taken off its schedule, write the setpoint of the thermostat again if the schedule changed it.",
           "pre_open": "When the thermostat closes the valve, open it to this value first so that the motor closes it fully. 0 disables it.",
           "slam_delay": "Time the valve stays at the pre-opening before it is closed."
@@ -121,6 +123,7 @@
           "pulse_delay": "Kick duration",
           "hot_step": "Hot step",
           "keep_schedule": "Keep the schedule of the TRV",
+          "legacy_converter": "Legacy Zigbee2MQTT converter",
           "restore_setpoint": "Restore the setpoint",
           "pre_open": "Pre-opening before a full close",
           "slam_delay": "Pre-opening duration"
@@ -131,6 +134,7 @@
           "pulse_delay": "Time to let the TRV react before restoring the temperature sensor.",
           "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it.",
           "keep_schedule": "Accept the schedule preset of the TRV (auto) when the thermostat heats. The other presets are always corrected.",
+          "legacy_converter": "Enable it if your Zigbee2MQTT converter is old: it shows the preset manual as the mode auto. The mode heat is then sent as auto, auto is read as heat, and heat (valve forced open) is not supported.",
           "restore_setpoint": "When the TRV is taken off its schedule, write the setpoint of the thermostat again if the schedule changed it.",
           "pre_open": "When the thermostat closes the valve, open it to this value first so that the motor closes it fully. 0 disables it.",
           "slam_delay": "Time the valve stays at the pre-opening before it is closed."
@@ -203,7 +207,7 @@
     },
     "outdated_converter": {
       "title": "Zigbee2MQTT converter too old",
-      "description": "{name}: {underlying} shows the state auto while its preset is manual, so the converter of Zigbee2MQTT for this valve is out of date. Update Zigbee2MQTT. Until then the thermostat reads the wrong mode and the quirk {quirk} cannot work."
+      "description": "{name}: {underlying} shows the state auto while its preset is manual, so the converter of Zigbee2MQTT for this valve is out of date. Update Zigbee2MQTT, or enable the option Legacy Zigbee2MQTT converter of the quirk {quirk}, which translates the mode for the thermostat. Until then the thermostat reads the wrong mode."
     },
     "closing_degree_keeps_changing": {
       "title": "Valve closing degree keeps changing",

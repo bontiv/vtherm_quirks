@@ -53,6 +53,7 @@
           "pulse_delay": "Durée du kick",
           "hot_step": "Étape chaude",
           "keep_schedule": "Garder le programme de la TRV",
+          "legacy_converter": "Ancien convertisseur Zigbee2MQTT",
           "restore_setpoint": "Restaurer la consigne",
           "pre_open": "Pré-ouverture avant une fermeture complète",
           "slam_delay": "Durée de la pré-ouverture"
@@ -63,6 +64,7 @@
           "pulse_delay": "Temps laissé à la TRV pour réagir avant de rétablir le capteur de température.",
           "hot_step": "Après l'étape froide, envoie aussi une fausse température au-dessus de la consigne pour forcer le passage en idle. À activer seulement si la vanne n'atteint pas l'ouverture demandée sans elle.",
           "keep_schedule": "Accepte le preset du programme de la TRV (auto) quand le thermostat chauffe. Les autres presets sont toujours corrigés.",
+          "legacy_converter": "À activer si votre convertisseur Zigbee2MQTT est ancien : il affiche le preset manual comme le mode auto. Le mode heat est alors envoyé auto, auto est lu heat, et heat (vanne forcée ouverte) n'est pas pris en charge.",
           "restore_setpoint": "Quand la TRV quitte son programme, réécrit la consigne du thermostat si le programme l'a changée.",
           "pre_open": "Quand le thermostat ferme la vanne, l'ouvre d'abord à cette valeur pour que le moteur la ferme complètement. 0 la désactive.",
           "slam_delay": "Temps pendant lequel la vanne reste à la pré-ouverture avant d'être fermée."
@@ -121,6 +123,7 @@
           "pulse_delay": "Durée du kick",
           "hot_step": "Étape chaude",
           "keep_schedule": "Garder le programme de la TRV",
+          "legacy_converter": "Ancien convertisseur Zigbee2MQTT",
           "restore_setpoint": "Restaurer la consigne",
           "pre_open": "Pré-ouverture avant une fermeture complète",
           "slam_delay": "Durée de la pré-ouverture"
@@ -131,6 +134,7 @@
           "pulse_delay": "Temps laissé à la TRV pour réagir avant de rétablir le capteur de température.",
           "hot_step": "Après l'étape froide, envoie aussi une fausse température au-dessus de la consigne pour forcer le passage en idle. À activer seulement si la vanne n'atteint pas l'ouverture demandée sans elle.",
           "keep_schedule": "Accepte le preset du programme de la TRV (auto) quand le thermostat chauffe. Les autres presets sont toujours corrigés.",
+          "legacy_converter": "À activer si votre convertisseur Zigbee2MQTT est ancien : il affiche le preset manual comme le mode auto. Le mode heat est alors envoyé auto, auto est lu heat, et heat (vanne forcée ouverte) n'est pas pris en charge.",
           "restore_setpoint": "Quand la TRV quitte son programme, réécrit la consigne du thermostat si le programme l'a changée.",
           "pre_open": "Quand le thermostat ferme la vanne, l'ouvre d'abord à cette valeur pour que le moteur la ferme complètement. 0 la désactive.",
           "slam_delay": "Temps pendant lequel la vanne reste à la pré-ouverture avant d'être fermée."
@@ -203,7 +207,7 @@
     },
     "outdated_converter": {
       "title": "Convertisseur Zigbee2MQTT trop ancien",
-      "description": "{name} : {underlying} affiche l'état auto alors que son preset est manual, donc le convertisseur de Zigbee2MQTT pour cette vanne n'est pas à jour. Mettez à jour Zigbee2MQTT. Tant que ce n'est pas fait, le thermostat lit un mauvais mode et le quirk {quirk} ne peut pas fonctionner."
+      "description": "{name} : {underlying} affiche l'état auto alors que son preset est manual, donc le convertisseur de Zigbee2MQTT pour cette vanne n'est pas à jour. Mettez à jour Zigbee2MQTT, ou activez l'option Ancien convertisseur Zigbee2MQTT du quirk {quirk}, qui traduit le mode pour le thermostat. Tant que ce n'est pas fait, le thermostat lit un mauvais mode."
     },
     "closing_degree_keeps_changing": {
       "title": "Le degré de fermeture de la vanne change sans cesse",

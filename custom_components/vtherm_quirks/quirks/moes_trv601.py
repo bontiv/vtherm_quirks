@@ -17,6 +17,12 @@ sends nor tracks:
 The preset is set before the hvac mode of VTherm is sent, then watched. A TRV
 that keeps leaving the wanted preset is corrected three times, then reported in
 the repairs and left alone until VTherm changes mode.
+
+With the option ``legacy_converter``, for a Zigbee2MQTT converter that shows the
+preset ``manual`` as the mode ``auto`` and the forced open valve as ``heat``, the
+quirk also translates the hvac mode for the core (contract of ``vtherm_api``
+0.10.0): ``heat`` is sent as ``auto``, ``auto`` is read as ``heat`` and ``heat``
+is read as unsupported. ``off`` is never translated.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ import voluptuous as vol
 from homeassistant.core import State
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.selector import BooleanSelector
+from vtherm_api import UNSUPPORTED_HVAC_MODE
 
 from ..const import HVAC_OFF, SCOPE_OVER_CLIMATE, UNDERLYING_CLIMATE
 from ._tuya_preset import (
@@ -60,8 +67,13 @@ PRESET_OFF = "off"  # verified: valve closed
 PRESET_ON = "on"  # verified: valve forced open
 PRESET_AUTO = "auto"  # verified: weekly schedule of the TRV
 
-# Quirk option
+# Modes of the climate entity of the TRV, as seen by the core.
+MODE_HEAT = "heat"
+MODE_AUTO = "auto"
+
+# Quirk options
 OPT_KEEP_SCHEDULE = "keep_schedule"
+OPT_LEGACY_CONVERTER = "legacy_converter"
 
 ISSUE_OUTDATED_CONVERTER = "outdated_converter"
 
@@ -106,9 +118,12 @@ class MoesTrv601Quirk(TuyaPresetQuirk):
 
     @classmethod
     def options_schema(cls) -> vol.Schema:
-        """Accept the schedule of the TRV when VTherm heats."""
+        """Accept the schedule of the TRV when VTherm heats, translate the modes of an old converter."""
         return vol.Schema(
-            {vol.Required(OPT_KEEP_SCHEDULE, default=False): BooleanSelector()}
+            {
+                vol.Required(OPT_KEEP_SCHEDULE, default=False): BooleanSelector(),
+                vol.Required(OPT_LEGACY_CONVERTER, default=False): BooleanSelector(),
+            }
         )
 
     # ------------------------------------------------------------------
@@ -128,10 +143,40 @@ class MoesTrv601Quirk(TuyaPresetQuirk):
             return (PRESET_MANUAL, PRESET_AUTO)
         return (target,)
 
-    @staticmethod
-    def _is_outdated(state: State, preset: str) -> bool:
-        """Preset manual shown as state auto: Zigbee2MQTT converter without the fix."""
-        return preset == PRESET_MANUAL and state.state == PRESET_AUTO
+    @property
+    def _legacy(self) -> bool:
+        return bool(self.options.get(OPT_LEGACY_CONVERTER))
+
+    def _is_outdated(self, state: State, preset: str) -> bool:
+        """Preset manual shown as state auto: Zigbee2MQTT converter without the fix.
+
+        With the option ``legacy_converter`` this display is expected, and the
+        core reads it through the translation of the modes.
+        """
+        return (
+            not self._legacy
+            and preset == PRESET_MANUAL
+            and state.state == PRESET_AUTO
+        )
+
+    # -- translation of the hvac modes (contract of vtherm_api 0.10.0) --
+    def to_underlying_hvac_mode(self, climate_entity_id: str, hvac_mode: str) -> str | None:
+        """Legacy converter: the mode that regulates is ``auto``, not ``heat``."""
+        if not self._legacy or climate_entity_id != self.underlying_entity_id:
+            return None
+        return MODE_AUTO if hvac_mode == MODE_HEAT else None
+
+    def from_underlying_hvac_mode(
+        self, climate_entity_id: str, underlying_hvac_mode: str
+    ) -> str | None:
+        """Legacy converter: ``auto`` is the regulation, ``heat`` the valve forced open."""
+        if not self._legacy or climate_entity_id != self.underlying_entity_id:
+            return None
+        if underlying_hvac_mode == MODE_AUTO:
+            return MODE_HEAT
+        if underlying_hvac_mode == MODE_HEAT:
+            return UNSUPPORTED_HVAC_MODE
+        return None
 
     def _check_state(self, state: State, preset: str) -> None:
         if (outdated := self._is_outdated(state, preset)) != self._outdated:
