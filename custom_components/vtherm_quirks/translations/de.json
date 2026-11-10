@@ -25,7 +25,11 @@
           "external_temperature": "Externe Temperatur",
           "sensor_select": "Temperatursensor",
           "adaptive_control": "Adaptive Temperaturregelung (optional)",
-          "open_window": "Fenster-offen-Erkennung (optional)"
+          "open_window": "Fenster-offen-Erkennung (optional)",
+          "opening_degree": "Öffnungsgrad des Ventils",
+          "closing_degree": "Schließgrad des Ventils",
+          "trv_mode": "TRV-Modus",
+          "valve_position": "Ventilposition (optional)"
         },
         "data_description": {
           "heating_position": "Zigbee2MQTT: heating_valve_position. ZHA: Valve opening degree. Muss die Öffnungsgrad-Entität des Thermostats sein.",
@@ -33,7 +37,11 @@
           "external_temperature": "Zigbee2MQTT: external_temperature_input. ZHA: External temperature sensor value.",
           "sensor_select": "Zigbee2MQTT: die Auswahl des Temperatursensors. ZHA: der Schalter External temperature sensor.",
           "adaptive_control": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert.",
-          "open_window": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert."
+          "open_window": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert.",
+          "opening_degree": "Zigbee2MQTT: valve_opening_degree. ZHA: Valve opening degree. Es muss die Öffnungsgrad-Entität des Thermostats sein.",
+          "closing_degree": "Zigbee2MQTT: valve_closing_degree. ZHA: Valve closing degree. Der Quirk schreibt sie selbst: konfiguriere sie nicht im Thermostat.",
+          "trv_mode": "Zigbee2MQTT: trv_mode. Der Quirk hält ihn bei direkter Ventilsteuerung auf 1, sonst auf 2.",
+          "valve_position": "Zigbee2MQTT: valve_position. Bei direkter Ventilsteuerung muss es die Öffnungsgrad-Entität des Thermostats sein."
         }
       },
       "options": {
@@ -44,14 +52,20 @@
           "delta": "Temperaturdifferenz",
           "pulse_delay": "Dauer des Kicks",
           "hot_step": "Heißer Schritt",
-          "keep_schedule": "Zeitplan des TRV behalten"
+          "keep_schedule": "Zeitplan des TRV behalten",
+          "restore_setpoint": "Sollwert wiederherstellen",
+          "pre_open": "Voröffnung vor dem vollständigen Schließen",
+          "slam_delay": "Dauer der Voröffnung"
         },
         "data_description": {
           "temperature_source": "Temperaturquelle, die nach dem Kick wiederhergestellt wird. Remote nur wählen, wenn eine andere Automatisierung die externe Temperatur liefert: ihr letzter Wert wird dann wiederhergestellt.",
           "delta": "Abstand zwischen dem Sollwert des TRV und der falschen Temperatur. Muss größer als die Temperaturgenauigkeit des TRV sein.",
           "pulse_delay": "Zeit, die dem TRV zum Reagieren bleibt, bevor der Temperatursensor wiederhergestellt wird.",
           "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht.",
-          "keep_schedule": "Akzeptiert das Preset auto (Wochenprogramm des TRV), wenn das Thermostat heizt. Das Preset on (Ventil erzwungen offen) wird immer korrigiert."
+          "keep_schedule": "Akzeptiert das Zeitplan-Preset des TRV (auto), wenn das Thermostat heizt. Die anderen Presets werden immer korrigiert.",
+          "restore_setpoint": "Wenn das TRV seinen Zeitplan verlässt, wird der Sollwert des Thermostats erneut geschrieben, falls der Zeitplan ihn geändert hat.",
+          "pre_open": "Wenn das Thermostat das Ventil schließt, wird es zuerst auf diesen Wert geöffnet, damit der Motor es vollständig schließt. 0 schaltet das ab.",
+          "slam_delay": "Zeit, die das Ventil in der Voröffnung bleibt, bevor es geschlossen wird."
         }
       }
     },
@@ -79,7 +93,11 @@
           "external_temperature": "Externe Temperatur",
           "sensor_select": "Temperatursensor",
           "adaptive_control": "Adaptive Temperaturregelung (optional)",
-          "open_window": "Fenster-offen-Erkennung (optional)"
+          "open_window": "Fenster-offen-Erkennung (optional)",
+          "opening_degree": "Öffnungsgrad des Ventils",
+          "closing_degree": "Schließgrad des Ventils",
+          "trv_mode": "TRV-Modus",
+          "valve_position": "Ventilposition (optional)"
         },
         "data_description": {
           "heating_position": "Zigbee2MQTT: heating_valve_position. ZHA: Valve opening degree. Muss die Öffnungsgrad-Entität des Thermostats sein.",
@@ -87,7 +105,11 @@
           "external_temperature": "Zigbee2MQTT: external_temperature_input. ZHA: External temperature sensor value.",
           "sensor_select": "Zigbee2MQTT: die Auswahl des Temperatursensors. ZHA: der Schalter External temperature sensor.",
           "adaptive_control": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert.",
-          "open_window": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert."
+          "open_window": "Wird nur verwendet, um eine Einstellung zu melden, die den Quirk blockiert.",
+          "opening_degree": "Zigbee2MQTT: valve_opening_degree. ZHA: Valve opening degree. Es muss die Öffnungsgrad-Entität des Thermostats sein.",
+          "closing_degree": "Zigbee2MQTT: valve_closing_degree. ZHA: Valve closing degree. Der Quirk schreibt sie selbst: konfiguriere sie nicht im Thermostat.",
+          "trv_mode": "Zigbee2MQTT: trv_mode. Der Quirk hält ihn bei direkter Ventilsteuerung auf 1, sonst auf 2.",
+          "valve_position": "Zigbee2MQTT: valve_position. Bei direkter Ventilsteuerung muss es die Öffnungsgrad-Entität des Thermostats sein."
         }
       },
       "options": {
@@ -98,14 +120,20 @@
           "delta": "Temperaturdifferenz",
           "pulse_delay": "Dauer des Kicks",
           "hot_step": "Heißer Schritt",
-          "keep_schedule": "Zeitplan des TRV behalten"
+          "keep_schedule": "Zeitplan des TRV behalten",
+          "restore_setpoint": "Sollwert wiederherstellen",
+          "pre_open": "Voröffnung vor dem vollständigen Schließen",
+          "slam_delay": "Dauer der Voröffnung"
         },
         "data_description": {
           "temperature_source": "Temperaturquelle, die nach dem Kick wiederhergestellt wird. Remote nur wählen, wenn eine andere Automatisierung die externe Temperatur liefert: ihr letzter Wert wird dann wiederhergestellt.",
           "delta": "Abstand zwischen dem Sollwert des TRV und der falschen Temperatur. Muss größer als die Temperaturgenauigkeit des TRV sein.",
           "pulse_delay": "Zeit, die dem TRV zum Reagieren bleibt, bevor der Temperatursensor wiederhergestellt wird.",
           "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht.",
-          "keep_schedule": "Akzeptiert das Preset auto (Wochenprogramm des TRV), wenn das Thermostat heizt. Das Preset on (Ventil erzwungen offen) wird immer korrigiert."
+          "keep_schedule": "Akzeptiert das Zeitplan-Preset des TRV (auto), wenn das Thermostat heizt. Die anderen Presets werden immer korrigiert.",
+          "restore_setpoint": "Wenn das TRV seinen Zeitplan verlässt, wird der Sollwert des Thermostats erneut geschrieben, falls der Zeitplan ihn geändert hat.",
+          "pre_open": "Wenn das Thermostat das Ventil schließt, wird es zuerst auf diesen Wert geöffnet, damit der Motor es vollständig schließt. 0 schaltet das ab.",
+          "slam_delay": "Zeit, die das Ventil in der Voröffnung bleibt, bevor es geschlossen wird."
         }
       }
     },
@@ -119,7 +147,10 @@
       "options": {
         "none": "Keiner",
         "sonoff_trv_zbt": "Sonoff TRV-ZBT",
-        "moes_trv601": "Moes TRV801 / Tuya TRV601 (Zigbee2MQTT)"
+        "moes_trv601": "Moes TRV801 / Tuya TRV601 (Zigbee2MQTT)",
+        "sonoff_trvzb": "Sonoff TRVZB",
+        "tuya_tv02": "Tuya TV02-Zigbee / Moes TV01-ZB",
+        "eurotronic_spzb0001": "Eurotronic Spirit Zigbee SPZB0001 (Zigbee2MQTT)"
       }
     },
     "temperature_source": {
@@ -148,7 +179,7 @@
     },
     "closing_entity_configured": {
       "title": "Schließgrad-Entität konfiguriert",
-      "description": "{name}: {entity} ist als Schließgrad-Entität konfiguriert. Entferne sie beim Quirk {quirk} auf {underlying}: Bei diesem Gerät ist es die Öffnung im Leerlauf, die der Quirk verwaltet."
+      "description": "{name}: {entity} ist als Schließgrad-Entität konfiguriert. Entferne sie beim Quirk {quirk} auf {underlying}: Der Quirk verwaltet diese Entität selbst."
     },
     "opening_entity_mismatch": {
       "title": "Abweichende Öffnungsgrad-Entität",
@@ -173,6 +204,26 @@
     "outdated_converter": {
       "title": "Zigbee2MQTT-Konverter zu alt",
       "description": "{name}: {underlying} zeigt den Zustand auto, obwohl das Preset manual ist. Der Konverter von Zigbee2MQTT für dieses Ventil ist also veraltet. Aktualisiere Zigbee2MQTT. Bis dahin liest das Thermostat den falschen Modus und der Quirk {quirk} kann nicht funktionieren."
+    },
+    "closing_degree_keeps_changing": {
+      "title": "Schließgrad des Ventils ändert sich ständig",
+      "description": "{name}: Der Quirk {quirk} kann {entity} nicht auf {expected} halten, es ist jetzt {current}. Der Quirk hat nach 3 Versuchen aufgehört, es zu korrigieren. Prüfe, was es ändert (eine Automatisierung, eine andere Integration). Der Quirk macht weiter, wenn das Thermostat den Modus wechselt."
+    },
+    "follow_underlying_enabled": {
+      "title": "Folgen des Sollwerts des Geräts aktiviert",
+      "description": "{name}: Das Thermostat folgt den Sollwertänderungen von {underlying}. Mit dem Quirk {quirk} kann ein vom Zeitplan des TRV geschriebener Sollwert dann als Änderung des Benutzers gelten. Deaktiviere im Thermostat das Folgen der Temperaturänderungen des Geräts."
+    },
+    "trv_mode_keeps_changing": {
+      "title": "TRV-Modus ändert sich ständig",
+      "description": "{name}: Der Quirk {quirk} kann den Modus von {underlying} nicht auf {mode} halten, er ist jetzt {current}. Der Quirk hat nach 3 Versuchen in einer Stunde aufgehört, ihn zu korrigieren. Prüfe, was ihn ändert. Der Quirk macht weiter, wenn das Thermostat OFF verlässt."
+    },
+    "valve_scale_percent": {
+      "title": "Öffnungsskala des Ventils in Prozent",
+      "description": "{name}: {entity} geht bis {max}, aber das Thermostat steuert es in Prozent, daher öffnet das Ventil von {underlying} nie vollständig. Leere die maximalen Öffnungsgrade des Thermostats (oder setze {max})."
+    },
+    "closing_entity_not_supported": {
+      "title": "Schließgrad-Entität nicht unterstützt",
+      "description": "{name}: {entity} ist als Schließgrad-Entität konfiguriert, aber {underlying} hat keine (Quirk {quirk}). Entferne sie aus dem Thermostat."
     }
   }
 }

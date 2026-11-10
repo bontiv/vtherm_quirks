@@ -25,7 +25,11 @@
           "external_temperature": "Température externe",
           "sensor_select": "Capteur de température",
           "adaptive_control": "Contrôle de température adaptatif (facultatif)",
-          "open_window": "Détection de fenêtre ouverte (facultatif)"
+          "open_window": "Détection de fenêtre ouverte (facultatif)",
+          "opening_degree": "Degré d'ouverture de la vanne",
+          "closing_degree": "Degré de fermeture de la vanne",
+          "trv_mode": "Mode de la TRV",
+          "valve_position": "Position de la vanne (facultatif)"
         },
         "data_description": {
           "heating_position": "Zigbee2MQTT : heating_valve_position. ZHA : Valve opening degree. Doit être l'entité d'ouverture du thermostat.",
@@ -33,7 +37,11 @@
           "external_temperature": "Zigbee2MQTT : external_temperature_input. ZHA : External temperature sensor value.",
           "sensor_select": "Zigbee2MQTT : le select du capteur de température. ZHA : l'interrupteur External temperature sensor.",
           "adaptive_control": "Sert seulement à signaler un réglage qui empêche le quirk de fonctionner.",
-          "open_window": "Sert seulement à signaler un réglage qui empêche le quirk de fonctionner."
+          "open_window": "Sert seulement à signaler un réglage qui empêche le quirk de fonctionner.",
+          "opening_degree": "Zigbee2MQTT : valve_opening_degree. ZHA : Valve opening degree. Ce doit être l'entité de degré d'ouverture du thermostat.",
+          "closing_degree": "Zigbee2MQTT : valve_closing_degree. ZHA : Valve closing degree. Le quirk l'écrit lui-même : ne la configurez pas dans le thermostat.",
+          "trv_mode": "Zigbee2MQTT : trv_mode. Le quirk le garde sur 1 avec le contrôle direct de la vanne, sur 2 sinon.",
+          "valve_position": "Zigbee2MQTT : valve_position. Avec le contrôle direct de la vanne, ce doit être l'entité de degré d'ouverture du thermostat."
         }
       },
       "options": {
@@ -44,14 +52,20 @@
           "delta": "Écart de température",
           "pulse_delay": "Durée du kick",
           "hot_step": "Étape chaude",
-          "keep_schedule": "Garder le programme de la TRV"
+          "keep_schedule": "Garder le programme de la TRV",
+          "restore_setpoint": "Restaurer la consigne",
+          "pre_open": "Pré-ouverture avant une fermeture complète",
+          "slam_delay": "Durée de la pré-ouverture"
         },
         "data_description": {
           "temperature_source": "Source de température rétablie après le kick. Choisissez Distante seulement si une autre automatisation alimente la température externe : sa dernière valeur est alors rétablie.",
           "delta": "Écart entre la consigne de la TRV et la fausse température. Doit être supérieur à la précision de température de la TRV.",
           "pulse_delay": "Temps laissé à la TRV pour réagir avant de rétablir le capteur de température.",
           "hot_step": "Après l'étape froide, envoie aussi une fausse température au-dessus de la consigne pour forcer le passage en idle. À activer seulement si la vanne n'atteint pas l'ouverture demandée sans elle.",
-          "keep_schedule": "Accepte le preset auto (programme hebdomadaire de la TRV) quand le thermostat chauffe. Le preset on (vanne forcée ouverte) est toujours corrigé."
+          "keep_schedule": "Accepte le preset du programme de la TRV (auto) quand le thermostat chauffe. Les autres presets sont toujours corrigés.",
+          "restore_setpoint": "Quand la TRV quitte son programme, réécrit la consigne du thermostat si le programme l'a changée.",
+          "pre_open": "Quand le thermostat ferme la vanne, l'ouvre d'abord à cette valeur pour que le moteur la ferme complètement. 0 la désactive.",
+          "slam_delay": "Temps pendant lequel la vanne reste à la pré-ouverture avant d'être fermée."
         }
       }
     },
@@ -79,7 +93,11 @@
           "external_temperature": "Température externe",
           "sensor_select": "Capteur de température",
           "adaptive_control": "Contrôle de température adaptatif (facultatif)",
-          "open_window": "Détection de fenêtre ouverte (facultatif)"
+          "open_window": "Détection de fenêtre ouverte (facultatif)",
+          "opening_degree": "Degré d'ouverture de la vanne",
+          "closing_degree": "Degré de fermeture de la vanne",
+          "trv_mode": "Mode de la TRV",
+          "valve_position": "Position de la vanne (facultatif)"
         },
         "data_description": {
           "heating_position": "Zigbee2MQTT : heating_valve_position. ZHA : Valve opening degree. Doit être l'entité d'ouverture du thermostat.",
@@ -87,7 +105,11 @@
           "external_temperature": "Zigbee2MQTT : external_temperature_input. ZHA : External temperature sensor value.",
           "sensor_select": "Zigbee2MQTT : le select du capteur de température. ZHA : l'interrupteur External temperature sensor.",
           "adaptive_control": "Sert seulement à signaler un réglage qui empêche le quirk de fonctionner.",
-          "open_window": "Sert seulement à signaler un réglage qui empêche le quirk de fonctionner."
+          "open_window": "Sert seulement à signaler un réglage qui empêche le quirk de fonctionner.",
+          "opening_degree": "Zigbee2MQTT : valve_opening_degree. ZHA : Valve opening degree. Ce doit être l'entité de degré d'ouverture du thermostat.",
+          "closing_degree": "Zigbee2MQTT : valve_closing_degree. ZHA : Valve closing degree. Le quirk l'écrit lui-même : ne la configurez pas dans le thermostat.",
+          "trv_mode": "Zigbee2MQTT : trv_mode. Le quirk le garde sur 1 avec le contrôle direct de la vanne, sur 2 sinon.",
+          "valve_position": "Zigbee2MQTT : valve_position. Avec le contrôle direct de la vanne, ce doit être l'entité de degré d'ouverture du thermostat."
         }
       },
       "options": {
@@ -98,14 +120,20 @@
           "delta": "Écart de température",
           "pulse_delay": "Durée du kick",
           "hot_step": "Étape chaude",
-          "keep_schedule": "Garder le programme de la TRV"
+          "keep_schedule": "Garder le programme de la TRV",
+          "restore_setpoint": "Restaurer la consigne",
+          "pre_open": "Pré-ouverture avant une fermeture complète",
+          "slam_delay": "Durée de la pré-ouverture"
         },
         "data_description": {
           "temperature_source": "Source de température rétablie après le kick. Choisissez Distante seulement si une autre automatisation alimente la température externe : sa dernière valeur est alors rétablie.",
           "delta": "Écart entre la consigne de la TRV et la fausse température. Doit être supérieur à la précision de température de la TRV.",
           "pulse_delay": "Temps laissé à la TRV pour réagir avant de rétablir le capteur de température.",
           "hot_step": "Après l'étape froide, envoie aussi une fausse température au-dessus de la consigne pour forcer le passage en idle. À activer seulement si la vanne n'atteint pas l'ouverture demandée sans elle.",
-          "keep_schedule": "Accepte le preset auto (programme hebdomadaire de la TRV) quand le thermostat chauffe. Le preset on (vanne forcée ouverte) est toujours corrigé."
+          "keep_schedule": "Accepte le preset du programme de la TRV (auto) quand le thermostat chauffe. Les autres presets sont toujours corrigés.",
+          "restore_setpoint": "Quand la TRV quitte son programme, réécrit la consigne du thermostat si le programme l'a changée.",
+          "pre_open": "Quand le thermostat ferme la vanne, l'ouvre d'abord à cette valeur pour que le moteur la ferme complètement. 0 la désactive.",
+          "slam_delay": "Temps pendant lequel la vanne reste à la pré-ouverture avant d'être fermée."
         }
       }
     },
@@ -119,7 +147,10 @@
       "options": {
         "none": "Aucun",
         "sonoff_trv_zbt": "Sonoff TRV-ZBT",
-        "moes_trv601": "Moes TRV801 / Tuya TRV601 (Zigbee2MQTT)"
+        "moes_trv601": "Moes TRV801 / Tuya TRV601 (Zigbee2MQTT)",
+        "sonoff_trvzb": "Sonoff TRVZB",
+        "tuya_tv02": "Tuya TV02-Zigbee / Moes TV01-ZB",
+        "eurotronic_spzb0001": "Eurotronic Spirit Zigbee SPZB0001 (Zigbee2MQTT)"
       }
     },
     "temperature_source": {
@@ -148,7 +179,7 @@
     },
     "closing_entity_configured": {
       "title": "Entité de degré de fermeture configurée",
-      "description": "{name} : {entity} est configurée comme entité de degré de fermeture. Avec le quirk {quirk} sur {underlying}, retirez-la : sur cet appareil, c'est l'ouverture au repos, gérée par le quirk."
+      "description": "{name} : {entity} est configurée comme entité de degré de fermeture. Avec le quirk {quirk} sur {underlying}, retirez-la : le quirk gère lui-même cette entité."
     },
     "opening_entity_mismatch": {
       "title": "Entité d'ouverture différente",
@@ -173,6 +204,26 @@
     "outdated_converter": {
       "title": "Convertisseur Zigbee2MQTT trop ancien",
       "description": "{name} : {underlying} affiche l'état auto alors que son preset est manual, donc le convertisseur de Zigbee2MQTT pour cette vanne n'est pas à jour. Mettez à jour Zigbee2MQTT. Tant que ce n'est pas fait, le thermostat lit un mauvais mode et le quirk {quirk} ne peut pas fonctionner."
+    },
+    "closing_degree_keeps_changing": {
+      "title": "Le degré de fermeture de la vanne change sans cesse",
+      "description": "{name} : le quirk {quirk} n'arrive pas à garder {entity} à {expected}, il est maintenant à {current}. Le quirk a arrêté de le corriger après 3 essais. Cherchez ce qui le change (une automatisation, une autre intégration). Le quirk reprend quand le thermostat change de mode."
+    },
+    "follow_underlying_enabled": {
+      "title": "Suivi de la consigne du sous-jacent activé",
+      "description": "{name} : le thermostat suit les changements de consigne de {underlying}. Avec le quirk {quirk}, une consigne écrite par le programme de la TRV peut alors être prise pour un changement de l'utilisateur. Désactivez « Suivre les changements de température du sous-jacent » dans le thermostat."
+    },
+    "trv_mode_keeps_changing": {
+      "title": "Le mode de la TRV change sans cesse",
+      "description": "{name} : le quirk {quirk} n'arrive pas à garder le mode de {underlying} sur {mode}, il est maintenant {current}. Le quirk a arrêté de le corriger après 3 essais en une heure. Cherchez ce qui le change. Le quirk reprend quand le thermostat sort d'OFF."
+    },
+    "valve_scale_percent": {
+      "title": "Échelle d'ouverture de la vanne en pourcentage",
+      "description": "{name} : {entity} monte jusqu'à {max} mais le thermostat la pilote en pourcentage, donc la vanne de {underlying} ne s'ouvre jamais complètement. Videz les degrés d'ouverture maximum du thermostat (ou mettez {max})."
+    },
+    "closing_entity_not_supported": {
+      "title": "Entité de degré de fermeture non prise en charge",
+      "description": "{name} : {entity} est configurée comme entité de degré de fermeture, mais {underlying} n'en a pas (quirk {quirk}). Retirez-la du thermostat."
     }
   }
 }

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any
+from typing import Any, ClassVar
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
@@ -24,6 +24,7 @@ SENSOR_Z2M = "select.trv_temperature_sensor_select"
 SENSOR_ZHA = "switch.trv_external_temperature_sensor"
 
 VTHERM_ENTRY_ID = "vtherm_salon"
+VTHERM_ENTITY_ID = "climate.salon"
 
 
 def vtherm_entry_infos(**overrides: Any) -> dict[str, Any]:
@@ -55,6 +56,7 @@ class FakeRuntime:
         self.entry_infos = entry_infos if entry_infos is not None else vtherm_entry_infos()
         self.unique_id = unique_id
         self.name = name
+        self.entity_id = VTHERM_ENTITY_ID
 
 
 @dataclass
@@ -87,7 +89,7 @@ class TrvSim:
         setpoint: float | None = 20.0,
         idle: float = 0,
         external: float = 21.5,
-    ) -> "TrvSim":
+    ) -> TrvSim:
         attrs = {} if setpoint is None else {"temperature": setpoint}
         self.hass.states.async_set(CLIMATE, hvac, attrs)
         self.hass.states.async_set(HEATING, "0")
@@ -267,6 +269,120 @@ def add_device(
         )
         found["open_window"] = register(
             "switch", f"{ieee}-1-64529-open_window", "trv_open_window",
+            translation_key="open_window",
+        )
+    return found
+
+
+TRVZB_OPENING = "number.trvzb_valve_opening_degree"
+TRVZB_CLOSING = "number.trvzb_valve_closing_degree"
+
+
+class TrvzbSim:
+    """A simulated Sonoff TRVZB: the two valve numbers and a recording service."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+        self.calls: list[tuple] = []
+        self.fail_values: set[float] = set()
+
+    entities: ClassVar[dict[str, str]] = {
+        "opening_degree": TRVZB_OPENING,
+        "closing_degree": TRVZB_CLOSING,
+    }
+
+    def setup(self, opening: str = "0", closing: str = "100", hvac: str = "heat") -> TrvzbSim:
+        self.hass.states.async_set(CLIMATE, hvac, {"temperature": 20.0})
+        self.hass.states.async_set(TRVZB_OPENING, opening)
+        self.hass.states.async_set(TRVZB_CLOSING, closing)
+
+        async def set_value(call: ServiceCall) -> None:
+            entity_id = call.data["entity_id"]
+            value = call.data["value"]
+            self.calls.append(("number", entity_id, value))
+            if value in self.fail_values:
+                raise ValueError(f"refused {value}")
+            self.hass.states.async_set(entity_id, str(value))
+
+        self.hass.services.async_register("number", "set_value", set_value)
+        return self
+
+    def opening(self, value: float) -> tuple:
+        return ("number", TRVZB_OPENING, value)
+
+    def closing(self, value: float) -> tuple:
+        return ("number", TRVZB_CLOSING, value)
+
+    def clear(self) -> None:
+        self.calls.clear()
+
+
+def add_trvzb_device(
+    hass: HomeAssistant,
+    kind: str,
+    climate_entity_id: str = CLIMATE,
+    ieee: str = "0x00124b0002",
+) -> dict[str, str]:
+    """Register a Sonoff TRVZB and its entities. ``kind`` is ``z2m`` or ``zha``."""
+    platform = "mqtt" if kind == "z2m" else "zha"
+    config_entry = MockConfigEntry(domain=platform)
+    config_entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={(platform, ieee)},
+        manufacturer="SONOFF",
+        model="Zigbee thermostatic radiator valve" if kind == "z2m" else "TRVZB",
+        model_id="TRVZB" if kind == "z2m" else None,
+    )
+    registry = er.async_get(hass)
+
+    def register(domain: str, unique_id: str, object_id: str, **kwargs) -> str:
+        return registry.async_get_or_create(
+            domain,
+            platform,
+            unique_id,
+            config_entry=config_entry,
+            device_id=device.id,
+            suggested_object_id=object_id,
+            **kwargs,
+        ).entity_id
+
+    found: dict[str, str] = {}
+    if kind == "z2m":
+        found["climate"] = register("climate", f"{ieee}_climate_zigbee2mqtt", "trvzb")
+        found["opening_degree"] = register(
+            "number", f"{ieee}_valve_opening_degree_zigbee2mqtt", "trvzb_valve_opening_degree"
+        )
+        found["closing_degree"] = register(
+            "number", f"{ieee}_valve_closing_degree_zigbee2mqtt", "trvzb_valve_closing_degree"
+        )
+        found["adaptive_control"] = register(
+            "switch", f"{ieee}_smart_temperature_control_zigbee2mqtt", "trvzb_smart_temperature_control"
+        )
+        found["open_window"] = register("switch", f"{ieee}_open_window_zigbee2mqtt", "trvzb_open_window")
+    else:
+        disabled = er.RegistryEntryDisabler.INTEGRATION
+        found["climate"] = register("climate", f"{ieee}-1-513", "trvzb", translation_key="thermostat")
+        found["opening_degree"] = register(
+            "number",
+            f"{ieee}-1-64529-valve_opening_degree",
+            "trvzb_valve_opening_degree",
+            translation_key="valve_opening_degree",
+            disabled_by=disabled,
+        )
+        found["closing_degree"] = register(
+            "number",
+            f"{ieee}-1-64529-valve_closing_degree",
+            "trvzb_valve_closing_degree",
+            translation_key="valve_closing_degree",
+            disabled_by=disabled,
+        )
+        found["adaptive_control"] = register(
+            "switch", f"{ieee}-1-64529-temperature_control_mode", "trvzb_adaptive_mode",
+            translation_key="adaptive_mode",
+        )
+        found["open_window"] = register(
+            "switch", f"{ieee}-1-64529-open_window", "trvzb_open_window",
             translation_key="open_window",
         )
     return found

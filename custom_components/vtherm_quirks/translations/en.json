@@ -25,7 +25,11 @@
           "external_temperature": "External temperature",
           "sensor_select": "Temperature sensor",
           "adaptive_control": "Adaptive / smart temperature control (optional)",
-          "open_window": "Open window detection (optional)"
+          "open_window": "Open window detection (optional)",
+          "opening_degree": "Valve opening degree",
+          "closing_degree": "Valve closing degree",
+          "trv_mode": "TRV mode",
+          "valve_position": "Valve position (optional)"
         },
         "data_description": {
           "heating_position": "Zigbee2MQTT: heating_valve_position. ZHA: Valve opening degree. It must be the opening degree entity of the thermostat.",
@@ -33,7 +37,11 @@
           "external_temperature": "Zigbee2MQTT: external_temperature_input. ZHA: External temperature sensor value.",
           "sensor_select": "Zigbee2MQTT: the temperature sensor select. ZHA: the External temperature sensor switch.",
           "adaptive_control": "Only used to report a setting that prevents the quirk from working.",
-          "open_window": "Only used to report a setting that prevents the quirk from working."
+          "open_window": "Only used to report a setting that prevents the quirk from working.",
+          "opening_degree": "Zigbee2MQTT: valve_opening_degree. ZHA: Valve opening degree. It must be the opening degree entity of the thermostat.",
+          "closing_degree": "Zigbee2MQTT: valve_closing_degree. ZHA: Valve closing degree. The quirk writes it: do not configure it in the thermostat.",
+          "trv_mode": "Zigbee2MQTT: trv_mode. The quirk keeps it on 1 with the direct valve control, on 2 otherwise.",
+          "valve_position": "Zigbee2MQTT: valve_position. With the direct valve control it must be the opening degree entity of the thermostat."
         }
       },
       "options": {
@@ -44,14 +52,20 @@
           "delta": "Temperature delta",
           "pulse_delay": "Kick duration",
           "hot_step": "Hot step",
-          "keep_schedule": "Keep the schedule of the TRV"
+          "keep_schedule": "Keep the schedule of the TRV",
+          "restore_setpoint": "Restore the setpoint",
+          "pre_open": "Pre-opening before a full close",
+          "slam_delay": "Pre-opening duration"
         },
         "data_description": {
           "temperature_source": "Temperature source restored after the kick. Use Remote only if another automation feeds the external temperature: its last value is then restored.",
           "delta": "Gap between the TRV setpoint and the fake temperature. Must be higher than the TRV temperature accuracy.",
           "pulse_delay": "Time to let the TRV react before restoring the temperature sensor.",
           "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it.",
-          "keep_schedule": "Accept the preset auto (weekly schedule of the TRV) when the thermostat heats. The preset on (valve forced open) is always corrected."
+          "keep_schedule": "Accept the schedule preset of the TRV (auto) when the thermostat heats. The other presets are always corrected.",
+          "restore_setpoint": "When the TRV is taken off its schedule, write the setpoint of the thermostat again if the schedule changed it.",
+          "pre_open": "When the thermostat closes the valve, open it to this value first so that the motor closes it fully. 0 disables it.",
+          "slam_delay": "Time the valve stays at the pre-opening before it is closed."
         }
       }
     },
@@ -79,7 +93,11 @@
           "external_temperature": "External temperature",
           "sensor_select": "Temperature sensor",
           "adaptive_control": "Adaptive / smart temperature control (optional)",
-          "open_window": "Open window detection (optional)"
+          "open_window": "Open window detection (optional)",
+          "opening_degree": "Valve opening degree",
+          "closing_degree": "Valve closing degree",
+          "trv_mode": "TRV mode",
+          "valve_position": "Valve position (optional)"
         },
         "data_description": {
           "heating_position": "Zigbee2MQTT: heating_valve_position. ZHA: Valve opening degree. It must be the opening degree entity of the thermostat.",
@@ -87,7 +105,11 @@
           "external_temperature": "Zigbee2MQTT: external_temperature_input. ZHA: External temperature sensor value.",
           "sensor_select": "Zigbee2MQTT: the temperature sensor select. ZHA: the External temperature sensor switch.",
           "adaptive_control": "Only used to report a setting that prevents the quirk from working.",
-          "open_window": "Only used to report a setting that prevents the quirk from working."
+          "open_window": "Only used to report a setting that prevents the quirk from working.",
+          "opening_degree": "Zigbee2MQTT: valve_opening_degree. ZHA: Valve opening degree. It must be the opening degree entity of the thermostat.",
+          "closing_degree": "Zigbee2MQTT: valve_closing_degree. ZHA: Valve closing degree. The quirk writes it: do not configure it in the thermostat.",
+          "trv_mode": "Zigbee2MQTT: trv_mode. The quirk keeps it on 1 with the direct valve control, on 2 otherwise.",
+          "valve_position": "Zigbee2MQTT: valve_position. With the direct valve control it must be the opening degree entity of the thermostat."
         }
       },
       "options": {
@@ -98,14 +120,20 @@
           "delta": "Temperature delta",
           "pulse_delay": "Kick duration",
           "hot_step": "Hot step",
-          "keep_schedule": "Keep the schedule of the TRV"
+          "keep_schedule": "Keep the schedule of the TRV",
+          "restore_setpoint": "Restore the setpoint",
+          "pre_open": "Pre-opening before a full close",
+          "slam_delay": "Pre-opening duration"
         },
         "data_description": {
           "temperature_source": "Temperature source restored after the kick. Use Remote only if another automation feeds the external temperature: its last value is then restored.",
           "delta": "Gap between the TRV setpoint and the fake temperature. Must be higher than the TRV temperature accuracy.",
           "pulse_delay": "Time to let the TRV react before restoring the temperature sensor.",
           "hot_step": "After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable only if the valve does not reach the requested opening without it.",
-          "keep_schedule": "Accept the preset auto (weekly schedule of the TRV) when the thermostat heats. The preset on (valve forced open) is always corrected."
+          "keep_schedule": "Accept the schedule preset of the TRV (auto) when the thermostat heats. The other presets are always corrected.",
+          "restore_setpoint": "When the TRV is taken off its schedule, write the setpoint of the thermostat again if the schedule changed it.",
+          "pre_open": "When the thermostat closes the valve, open it to this value first so that the motor closes it fully. 0 disables it.",
+          "slam_delay": "Time the valve stays at the pre-opening before it is closed."
         }
       }
     },
@@ -119,7 +147,10 @@
       "options": {
         "none": "None",
         "sonoff_trv_zbt": "Sonoff TRV-ZBT",
-        "moes_trv601": "Moes TRV801 / Tuya TRV601 (Zigbee2MQTT)"
+        "moes_trv601": "Moes TRV801 / Tuya TRV601 (Zigbee2MQTT)",
+        "sonoff_trvzb": "Sonoff TRVZB",
+        "tuya_tv02": "Tuya TV02-Zigbee / Moes TV01-ZB",
+        "eurotronic_spzb0001": "Eurotronic Spirit Zigbee SPZB0001 (Zigbee2MQTT)"
       }
     },
     "temperature_source": {
@@ -148,7 +179,7 @@
     },
     "closing_entity_configured": {
       "title": "Closing degree entity configured",
-      "description": "{name}: {entity} is configured as closing degree entity. With the quirk {quirk} on {underlying}, remove it: on this device it is the idle opening, which the quirk manages."
+      "description": "{name}: {entity} is configured as closing degree entity. With the quirk {quirk} on {underlying}, remove it: the quirk manages this entity itself."
     },
     "opening_entity_mismatch": {
       "title": "Opening degree entity mismatch",
@@ -173,6 +204,26 @@
     "outdated_converter": {
       "title": "Zigbee2MQTT converter too old",
       "description": "{name}: {underlying} shows the state auto while its preset is manual, so the converter of Zigbee2MQTT for this valve is out of date. Update Zigbee2MQTT. Until then the thermostat reads the wrong mode and the quirk {quirk} cannot work."
+    },
+    "closing_degree_keeps_changing": {
+      "title": "Valve closing degree keeps changing",
+      "description": "{name}: the quirk {quirk} cannot keep {entity} at {expected}, it is now {current}. The quirk stopped correcting it after 3 attempts. Check what changes it (an automation, another integration). The quirk starts again when the thermostat changes mode."
+    },
+    "follow_underlying_enabled": {
+      "title": "Following of the underlying setpoint enabled",
+      "description": "{name}: the thermostat follows the setpoint changes of {underlying}. With the quirk {quirk}, a setpoint written by the schedule of the TRV can then be taken as a user change. Disable \"Follow underlying temperature changes\" in the thermostat."
+    },
+    "trv_mode_keeps_changing": {
+      "title": "TRV mode keeps changing",
+      "description": "{name}: the quirk {quirk} cannot keep the TRV mode of {underlying} on {mode}, it is now {current}. The quirk stopped correcting it after 3 attempts in an hour. Check what changes it. The quirk starts again when the thermostat leaves OFF."
+    },
+    "valve_scale_percent": {
+      "title": "Valve opening scale in percent",
+      "description": "{name}: {entity} goes up to {max} but the thermostat drives it in percent, so the valve of {underlying} never opens fully. Empty the max opening degrees of the thermostat (or set it to {max})."
+    },
+    "closing_entity_not_supported": {
+      "title": "Closing degree entity not supported",
+      "description": "{name}: {entity} is configured as closing degree entity, but {underlying} has none (quirk {quirk}). Remove it from the thermostat."
     }
   }
 }

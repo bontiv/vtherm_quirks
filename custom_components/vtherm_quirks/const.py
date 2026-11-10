@@ -43,6 +43,8 @@ VT_CONF_UNDERLYING_LIST = "underlying_entity_ids"
 VT_CONF_AUTO_REGULATION_MODE = "auto_regulation_mode"
 VT_CONF_OPENING_DEGREE_LIST = "opening_degree_entity_ids"
 VT_CONF_CLOSING_DEGREE_LIST = "closing_degree_entity_ids"
+VT_CONF_MAX_CLOSING_DEGREE = "max_closing_degree"
+VT_CONF_MAX_OPENING_DEGREES = "max_opening_degrees"
 VT_CONF_SYNC_DEVICE_INTERNAL_TEMP = "sync_device_internal_temp"
 
 VT_THERMOSTAT_SWITCH = "thermostat_over_switch"

@@ -12,16 +12,21 @@ import voluptuous as vol
 
 from custom_components.vtherm_quirks.quirks import (
     QUIRKS,
-    _discover_quirks,
     BaseQuirk,
+    _discover_quirks,
     compatible_quirks,
     detect_quirk,
     get_quirk,
     underlying_type_of,
     vtherm_scopes_of,
 )
+from custom_components.vtherm_quirks.quirks.eurotronic_spzb0001 import (
+    EurotronicSpzb0001Quirk,
+)
 from custom_components.vtherm_quirks.quirks.moes_trv601 import MoesTrv601Quirk
 from custom_components.vtherm_quirks.quirks.sonoff_trv_zbt import SonoffTrvZbtQuirk
+from custom_components.vtherm_quirks.quirks.sonoff_trvzb import SonoffTrvzbQuirk
+from custom_components.vtherm_quirks.quirks.tuya_tv02 import TuyaTv02Quirk
 
 from .common import add_device, device_of, vtherm_entry_infos
 
@@ -84,10 +89,18 @@ def test_scopes_and_underlying_type() -> None:
 
 def test_compatible_quirks() -> None:
     """Only quirks matching the type and the scope are compatible."""
-    assert compatible_quirks(vtherm_entry_infos()) == [MoesTrv601Quirk, SonoffTrvZbtQuirk]
+    assert compatible_quirks(vtherm_entry_infos()) == [
+        EurotronicSpzb0001Quirk,
+        MoesTrv601Quirk,
+        SonoffTrvZbtQuirk,
+        SonoffTrvzbQuirk,
+        TuyaTv02Quirk,
+    ]
     # Without direct valve control only the quirks of the plain over_climate remain.
     assert compatible_quirks(vtherm_entry_infos(auto_regulation_mode="auto_regulation_slow")) == [
-        MoesTrv601Quirk
+        EurotronicSpzb0001Quirk,
+        MoesTrv601Quirk,
+        TuyaTv02Quirk,
     ]
     assert compatible_quirks({"thermostat_type": "thermostat_over_switch"}) == []
 
@@ -222,3 +235,22 @@ async def test_detect_quirk_warns_when_several_match(
     with caplog.at_level(logging.WARNING):
         assert detect_quirk(device, vtherm_entry_infos()) is SonoffTrvZbtQuirk
     assert any("sonoff_trv_zbt" in r.getMessage() and "other" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("language", ["en", "fr", "de"])
+@pytest.mark.parametrize("quirk", QUIRKS, ids=lambda q: q.quirk_id)
+def test_every_quirk_is_translated(quirk: type[BaseQuirk], language: str) -> None:
+    """The name, the roles and the options of every quirk are translated."""
+    import json
+
+    path = Path(__file__).parents[1] / "custom_components/vtherm_quirks/translations" / f"{language}.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert quirk.quirk_id in data["selector"]["quirk"]["options"]
+    for section in ("config", "options"):
+        steps = data[section]["step"]
+        for role in quirk.entity_roles():
+            assert role.key in steps["entities"]["data"], (section, role.key)
+            assert role.key in steps["entities"]["data_description"], (section, role.key)
+        for option in quirk.resolve_options({}):
+            assert option in steps["options"]["data"], (section, option)
+            assert option in steps["options"]["data_description"], (section, option)

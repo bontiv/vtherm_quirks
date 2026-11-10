@@ -15,9 +15,16 @@ custom_components/vtherm_quirks/
   quirks/
     __init__.py      # discovers the quirk modules (QUIRKS) and the helpers
     base.py          # BaseQuirk, EntityRole, QuirkIssue
+    _tuya_preset.py  # TuyaPresetQuirk: keeps a Tuya preset in line with the mode of VTherm
+    _zigbee_roles.py # RoleSpec: finds the entities of a device under Zigbee2MQTT and ZHA
+    eurotronic_spzb0001.py
     moes_trv601.py
     sonoff_trv_zbt.py
+    sonoff_trvzb.py
+    tuya_tv02.py
 ```
+
+Modules starting with `_` hold code shared by several quirks: the registry does not look for quirks in them.
 
 - The **registry** (`quirks/__init__.py`) discovers the quirk classes when the package is imported: it imports every module of `quirks/` except `base` and the ones starting with `_`, and keeps the `BaseQuirk` subclasses defined there that have a `quirk_id`. Adding a quirk means adding a module, there is no list to edit. A module that fails to import is logged and skipped, and a duplicate `quirk_id` is logged and ignored.
 - The **`QuirksManager`** is the only feature manager of the plugin, one per VTherm. It implements the three hooks and forwards each call to the quirk instance bound to the underlying concerned. It only forwards a hook to a quirk whose class defines it.

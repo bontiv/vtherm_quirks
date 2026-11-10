@@ -27,8 +27,11 @@ Diese Integration registriert einen Feature-Manager pro VTherm. Der Manager leit
 
 | Quirk | Gerät | Integrationen | Seite |
 |---|---|---|---|
+| `eurotronic_spzb0001` | Eurotronic Spirit Zigbee (SPZB0001) | Zigbee2MQTT | [docs/quirks/eurotronic_spzb0001.md](docs/quirks/eurotronic_spzb0001.md) |
 | `moes_trv601` | Moes TRV801 / Tuya TRV601 | Zigbee2MQTT | [docs/quirks/moes_trv601.md](docs/quirks/moes_trv601.md) |
 | `sonoff_trv_zbt` | Sonoff TRV-ZBT (Gen2) | Zigbee2MQTT, ZHA | [docs/quirks/sonoff_trv_zbt.md](docs/quirks/sonoff_trv_zbt.md) |
+| `sonoff_trvzb` | Sonoff TRVZB (Gen1) | Zigbee2MQTT, ZHA | [docs/quirks/sonoff_trvzb.md](docs/quirks/sonoff_trvzb.md) |
+| `tuya_tv02` | Tuya TV02-Zigbee, Moes TV01-ZB | Zigbee2MQTT, ZHA | [docs/quirks/tuya_tv02.md](docs/quirks/tuya_tv02.md) |
 
 Der Quirk `sonoff_trv_zbt` ersetzt den Blueprint [Sonoff TRV-ZBT valve kick](https://gist.github.com/bontiv/af2d59adb15bf3d522282edd662a75e4). Weitere Quirks sind willkommen, siehe [CONTRIBUTING.md](CONTRIBUTING.md) (auf Englisch). Die Seiten der Quirks sind auf Englisch.
 
