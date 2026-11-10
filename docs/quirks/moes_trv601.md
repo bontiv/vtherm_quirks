@@ -41,30 +41,13 @@ The quirk never changes the hvac mode of the valve, only its preset.
 
 The `manual` preset is shown as `heat` only with the converter fixed by [zigbee-herdsman-converters#13695](https://github.com/Koenkk/zigbee-herdsman-converters/pull/13695), merged on 2026-11-04. It is not confirmed yet which Zigbee2MQTT release contains it. Check the release notes before you install the quirk.
 
-With an older converter, the preset `manual` is shown as `auto` and the preset `on` (valve forced open) as `heat`, so VTherm reads the wrong mode. Either update Zigbee2MQTT, or enable the option `legacy_converter` below.
-
-## Legacy converter
-
-With the option `legacy_converter`, the quirk translates the hvac mode between VTherm and the valve, so that VTherm reads the right mode with an old converter:
-
-| Direction | Mode | Translated to |
-|---|---|---|
-| VTherm to the valve | `heat` | `auto` |
-| Valve to VTherm | `auto` | `heat` |
-| Valve to VTherm | `heat` | not supported |
-
-`heat` read on the valve is the preset `on` (valve forced open): VTherm lists it as unsupported, treats it as a fault and sends the mode again, and the quirk puts the preset back to `manual`. The mode `off` is never translated.
-
-With the option, the display of `manual` as `auto` is expected: the quirk accepts it and no longer raises the repair issue `outdated_converter`. Do not enable the option with a Zigbee2MQTT release that has the fix, `manual` is then shown as `heat` and the translation would be wrong.
-
-The translation needs a Versatile Thermostat release that calls the hvac mode contract of `vtherm_api` 0.10.0.
+With an older converter, the preset `manual` is shown as `auto`, and VTherm reads the wrong mode.
 
 ## Option
 
 | Option | Default | Meaning |
 |---|---|---|
 | Keep the schedule of the TRV (`keep_schedule`) | off | When VTherm heats, also accept the preset `auto`, the weekly schedule of the valve. The preset `on` is always corrected. |
-| Legacy Zigbee2MQTT converter (`legacy_converter`) | off | The converter of Zigbee2MQTT is old: translate the hvac mode as described above. |
 
 The quirk has no entity to set. The preset is read on the climate entity itself.
 
@@ -72,7 +55,7 @@ The quirk has no entity to set. The preset is read on the climate entity itself.
 
 | Issue | Severity | Meaning |
 |---|---|---|
-| `outdated_converter` | error | The preset is `manual` but the state is `auto`. Update Zigbee2MQTT, or enable the option `legacy_converter`. The quirk does not correct anything in this case. Not raised with the option. |
+| `outdated_converter` | error | The preset is `manual` but the state is `auto`. Update Zigbee2MQTT. The quirk does not correct anything in this case. |
 | `preset_keeps_changing` | warning | The valve left the wanted preset again after 3 corrections. Look for what changes the preset: the valve itself, an automation or another integration. |
 
 ## Settings of the VTherm

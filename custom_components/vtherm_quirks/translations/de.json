@@ -53,7 +53,6 @@
           "pulse_delay": "Dauer des Kicks",
           "hot_step": "Heißer Schritt",
           "keep_schedule": "Zeitplan des TRV behalten",
-          "legacy_converter": "Alter Zigbee2MQTT-Konverter",
           "restore_setpoint": "Sollwert wiederherstellen",
           "pre_open": "Voröffnung vor dem vollständigen Schließen",
           "slam_delay": "Dauer der Voröffnung"
@@ -64,7 +63,6 @@
           "pulse_delay": "Zeit, die dem TRV zum Reagieren bleibt, bevor der Temperatursensor wiederhergestellt wird.",
           "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht.",
           "keep_schedule": "Akzeptiert das Zeitplan-Preset des TRV (auto), wenn das Thermostat heizt. Die anderen Presets werden immer korrigiert.",
-          "legacy_converter": "Aktiviere es, wenn dein Zigbee2MQTT-Konverter alt ist: Er zeigt das Preset manual als Modus auto an. Der Modus heat wird dann als auto gesendet, auto wird als heat gelesen und heat (Ventil erzwungen offen) wird nicht unterstützt.",
           "restore_setpoint": "Wenn das TRV seinen Zeitplan verlässt, wird der Sollwert des Thermostats erneut geschrieben, falls der Zeitplan ihn geändert hat.",
           "pre_open": "Wenn das Thermostat das Ventil schließt, wird es zuerst auf diesen Wert geöffnet, damit der Motor es vollständig schließt. 0 schaltet das ab.",
           "slam_delay": "Zeit, die das Ventil in der Voröffnung bleibt, bevor es geschlossen wird."
@@ -123,7 +121,6 @@
           "pulse_delay": "Dauer des Kicks",
           "hot_step": "Heißer Schritt",
           "keep_schedule": "Zeitplan des TRV behalten",
-          "legacy_converter": "Alter Zigbee2MQTT-Konverter",
           "restore_setpoint": "Sollwert wiederherstellen",
           "pre_open": "Voröffnung vor dem vollständigen Schließen",
           "slam_delay": "Dauer der Voröffnung"
@@ -134,7 +131,6 @@
           "pulse_delay": "Zeit, die dem TRV zum Reagieren bleibt, bevor der Temperatursensor wiederhergestellt wird.",
           "hot_step": "Sendet nach dem kalten Schritt auch eine falsche Temperatur über dem Sollwert, um den Wechsel in den Leerlauf zu erzwingen. Nur aktivieren, wenn das Ventil ohne ihn die gewünschte Öffnung nicht erreicht.",
           "keep_schedule": "Akzeptiert das Zeitplan-Preset des TRV (auto), wenn das Thermostat heizt. Die anderen Presets werden immer korrigiert.",
-          "legacy_converter": "Aktiviere es, wenn dein Zigbee2MQTT-Konverter alt ist: Er zeigt das Preset manual als Modus auto an. Der Modus heat wird dann als auto gesendet, auto wird als heat gelesen und heat (Ventil erzwungen offen) wird nicht unterstützt.",
           "restore_setpoint": "Wenn das TRV seinen Zeitplan verlässt, wird der Sollwert des Thermostats erneut geschrieben, falls der Zeitplan ihn geändert hat.",
           "pre_open": "Wenn das Thermostat das Ventil schließt, wird es zuerst auf diesen Wert geöffnet, damit der Motor es vollständig schließt. 0 schaltet das ab.",
           "slam_delay": "Zeit, die das Ventil in der Voröffnung bleibt, bevor es geschlossen wird."
@@ -207,7 +203,7 @@
     },
     "outdated_converter": {
       "title": "Zigbee2MQTT-Konverter zu alt",
-      "description": "{name}: {underlying} zeigt den Zustand auto, obwohl das Preset manual ist. Der Konverter von Zigbee2MQTT für dieses Ventil ist also veraltet. Aktualisiere Zigbee2MQTT oder aktiviere die Option Alter Zigbee2MQTT-Konverter des Quirks {quirk}, die den Modus für das Thermostat übersetzt. Bis dahin liest das Thermostat den falschen Modus."
+      "description": "{name}: {underlying} zeigt den Zustand auto, obwohl das Preset manual ist. Der Konverter von Zigbee2MQTT für dieses Ventil ist also veraltet. Aktualisiere Zigbee2MQTT. Bis dahin liest das Thermostat den falschen Modus und der Quirk {quirk} kann nicht funktionieren."
     },
     "closing_degree_keeps_changing": {
       "title": "Schließgrad des Ventils ändert sich ständig",
