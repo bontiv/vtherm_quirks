@@ -1,0 +1,210 @@
+name: Release
+
+# Runs when a tag looking like "v<major>.<minor>.<patch>[...]" is pushed.
+# The GitHub filter is only a coarse pre-filter: the "check" job validates the
+# tag name strictly against Semantic Versioning before anything is changed.
+#
+# No release loop: when manifest.json has to be fixed, the bump commit and the
+# moved tag are pushed with GITHUB_TOKEN, and pushes made with GITHUB_TOKEN never
+# trigger a new workflow run. Even if that token were swapped for a PAT, the
+# next run would find the manifest already up to date and push nothing.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Check tag name
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+      prerelease: ${{ steps.semver.outputs.prerelease }}
+    steps:
+      - name: Validate semantic version
+        id: semver
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          num='(0|[1-9][0-9]*)'
+          ident='[0-9A-Za-z-]+'
+          re="^v${num}\.${num}\.${num}(-${ident}(\.${ident})*)?(\+${ident}(\.${ident})*)?$"
+          if [[ "$TAG" =~ $re ]]; then
+            echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+            if [ -n "${BASH_REMATCH[4]}" ]; then
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            fi
+            echo "Tag $TAG is a valid semantic version."
+          else
+            echo "::notice::Tag $TAG is not a semantic version prefixed with 'v', no release is made."
+          fi
+
+  release:
+    name: Build draft release
+    needs: check
+    if: needs.check.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.check.outputs.version }}
+      PRERELEASE: ${{ needs.check.outputs.prerelease }}
+      MANIFEST: custom_components/vtherm_quirks/manifest.json
+      ZIP_NAME: vtherm_quirks.zip
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # actions/checkout may store an annotated tag as a lightweight one:
+          # fetch it again to keep the original tag object.
+          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+
+      - name: Find tagged commit and previous release
+        id: refs
+        run: |
+          tag_object=$(git rev-parse "refs/tags/${TAG}")
+          tagged_sha=$(git rev-parse "refs/tags/${TAG}^{commit}")
+          # Closest version tag strictly before the tagged commit. A stable
+          # release is compared with the previous stable one, a pre-release
+          # with any previous version.
+          version_re='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+          if [ "$PRERELEASE" != "true" ]; then
+            version_re="${version_re}(\+.*)?$"
+          fi
+          previous=$(git -c versionsort.suffix=- tag --list 'v*' \
+              --merged "$tagged_sha" --no-contains "$tagged_sha" --sort=-v:refname \
+            | grep -E "$version_re" \
+            | head -n 1 || true)
+          {
+            echo "tag_object=$tag_object"
+            echo "tagged_sha=$tagged_sha"
+            echo "previous=$previous"
+          } >> "$GITHUB_OUTPUT"
+          echo "Tagged commit: $tagged_sha"
+          echo "Previous release tag: ${previous:-<none>}"
+
+      - name: Sync manifest version and move the tag
+        env:
+          TAG_OBJECT: ${{ steps.refs.outputs.tag_object }}
+          TAGGED_SHA: ${{ steps.refs.outputs.tagged_sha }}
+        run: |
+          current=$(jq -r '.version' "$MANIFEST")
+          if [ "$current" = "$VERSION" ]; then
+            echo "manifest.json already has version $VERSION, the tag is left as is."
+            exit 0
+          fi
+
+          echo "manifest.json has version $current, setting it to $VERSION."
+          # Edit the line in place to keep the file formatting.
+          sed -E -i "s/(\"version\"[[:space:]]*:[[:space:]]*\")[^\"]*(\")/\1${VERSION}\2/" "$MANIFEST"
+          if [ "$(jq -r '.version' "$MANIFEST")" != "$VERSION" ]; then
+            echo "::error::Could not update the version in $MANIFEST."
+            exit 1
+          fi
+
+          git add "$MANIFEST"
+          git commit -m "chore(release): set manifest version to ${VERSION}"
+
+          # Keep an annotated tag annotated, with its original message.
+          if [ "$(git cat-file -t "refs/tags/${TAG}")" = "tag" ]; then
+            message=$(git tag --list --format='%(contents:subject)%0a%0a%(contents:body)' "$TAG")
+            git tag --force --annotate "$TAG" --message "${message:-$TAG}"
+          else
+            git tag --force "$TAG"
+          fi
+
+          # The lease makes the push fail if someone moved the tag meanwhile.
+          git push --force-with-lease="refs/tags/${TAG}:${TAG_OBJECT}" origin "refs/tags/${TAG}"
+          echo "::notice::Tag $TAG moved to $(git rev-parse HEAD) with manifest version $VERSION."
+
+          # Best effort: bring the bump to the default branch when it is a fast-forward.
+          if [ "$(git rev-parse "origin/${DEFAULT_BRANCH}")" = "$TAGGED_SHA" ]; then
+            git push origin "HEAD:refs/heads/${DEFAULT_BRANCH}" \
+              || echo "::warning::Could not push the manifest bump to ${DEFAULT_BRANCH}, update it by hand."
+          else
+            echo "::warning::${DEFAULT_BRANCH} is not on the tagged commit, the manifest bump is only on tag ${TAG}."
+          fi
+
+      - name: Build HACS zip
+        run: |
+          cd custom_components/vtherm_quirks
+          zip -r -X "${GITHUB_WORKSPACE}/${ZIP_NAME}" . -x '*__pycache__*' '*.pyc'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l "$ZIP_NAME"
+          if [ "$(unzip -p "$ZIP_NAME" manifest.json | jq -r '.version')" != "$VERSION" ]; then
+            echo "::error::The zip manifest.json does not have version $VERSION."
+            exit 1
+          fi
+
+      - name: Write release notes
+        env:
+          PREVIOUS: ${{ steps.refs.outputs.previous }}
+          TAGGED_SHA: ${{ steps.refs.outputs.tagged_sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          if [ -n "$PREVIOUS" ]; then
+            range="${PREVIOUS}..${TAGGED_SHA}"
+          else
+            range="$TAGGED_SHA"
+          fi
+          commits=$(git log --no-merges --pretty=format:'- %s (%h)' "$range")
+          {
+            if [ -n "$PREVIOUS" ]; then
+              echo "## Changes since ${PREVIOUS}"
+            else
+              echo "## Changes"
+            fi
+            echo
+            echo "${commits:-- No changes.}"
+            if [ -n "$PREVIOUS" ]; then
+              echo
+              echo "**Full changelog**: ${REPO_URL}/compare/${PREVIOUS}...${TAG}"
+            fi
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then
+            flags+=(--prerelease)
+          fi
+
+          if is_draft=$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [ "$is_draft" != "true" ]; then
+              echo "::error::Release $TAG is already published, it is left untouched."
+              exit 1
+            fi
+            echo "Draft release $TAG already exists, updating it."
+            gh release upload "$TAG" "$ZIP_NAME" --clobber
+            gh release edit "$TAG" --notes-file release-notes.md "${flags[@]}"
+          else
+            gh release create "$TAG" "$ZIP_NAME" \
+              --draft \
+              --verify-tag \
+              --title "$TAG" \
+              --notes-file release-notes.md \
+              "${flags[@]}"
+          fi

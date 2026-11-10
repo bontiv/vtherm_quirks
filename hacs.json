@@ -1,5 +1,7 @@
 {
   "name": "Versatile Thermostat Quirks",
   "homeassistant": "2025.1.0",
-  "render_readme": true
+  "render_readme": true,
+  "zip_release": true,
+  "filename": "vtherm_quirks.zip"
 }
