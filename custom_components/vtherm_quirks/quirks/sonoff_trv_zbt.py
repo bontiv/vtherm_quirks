@@ -16,7 +16,6 @@ This quirk reproduces and replaces the "Sonoff TRV-ZBT valve kick" blueprint:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import voluptuous as vol
@@ -44,6 +43,7 @@ from ..const import (
     VT_CONF_OPENING_DEGREE_LIST,
     VT_CONF_SYNC_DEVICE_INTERNAL_TEMP,
 )
+from ._zigbee_roles import RoleSpec, discover_role_entities, is_sonoff
 from .base import BaseQuirk, EntityRole, QuirkIssue, clamp_temperature, to_float
 
 if TYPE_CHECKING:
@@ -57,11 +57,8 @@ if TYPE_CHECKING:
 # and zigpy/zha-device-handlers zhaquirks/sonoff/trvzb.py) and of Zigbee2MQTT
 # (zigbee-herdsman-converters src/devices/sonoff.ts).
 # ---------------------------------------------------------------------------
-TRV_ZBT_MANUFACTURER = "SONOFF"  # verified (ZHA and Z2M)
 TRV_ZBT_MODEL = "TRV-ZBT"  # verified (ZHA model, Z2M zigbeeModel/model)
 
-Z2M_PLATFORM = "mqtt"
-ZHA_PLATFORM = "zha"
 # Options of the Z2M temperature_sensor_select (ZHA uses an on/off switch).
 Z2M_SENSOR_LOCAL_OPTION = "local_temperature"  # verified
 Z2M_SENSOR_REMOTE_OPTION = "remote_temperature"  # verified
@@ -95,58 +92,41 @@ ROLE_ADAPTIVE_CONTROL = "adaptive_control"
 ROLE_OPEN_WINDOW = "open_window"
 
 
-@dataclass(frozen=True, slots=True)
-class _RoleSpec:
-    """How to recognize the entity of a role on each integration.
-
-    Zigbee2MQTT: the unique_id of an entity is "<ieee>_<expose name>_<base
-    topic>" (from the MQTT discovery of Z2M, not re-read in the Z2M sources),
-    matched by "contains _<name>_" or "ends with _<name>". The expose names
-    are verified.
-
-    ZHA: the translation key is verified (TRV-ZBT device dump and quirk). The
-    attribute is the unique_id suffix ("<ieee>-<endpoint>-<cluster>-<attribute>"),
-    a fallback that was not checked against a real entity registry.
-    """
-
-    role: EntityRole
-    z2m_name: str
-    zha_translation_key: str
-    zha_attribute: str | None = None
-
-
-_ROLE_SPECS: tuple[_RoleSpec, ...] = (
-    _RoleSpec(
+# The Z2M expose names and the ZHA translation keys are verified (TRV-ZBT
+# device dump and quirk). The ZHA attribute (unique_id suffix) is a fallback
+# that was not checked against a real entity registry.
+_ROLE_SPECS: tuple[RoleSpec, ...] = (
+    RoleSpec(
         EntityRole(ROLE_HEATING_POSITION, ("number",)),
         z2m_name="heating_valve_position",
         zha_translation_key="valve_opening_degree",  # "Valve opening degree"
         zha_attribute="valve_opening_degree",
     ),
-    _RoleSpec(
+    RoleSpec(
         EntityRole(ROLE_IDLE_POSITION, ("number",)),
         z2m_name="idle_valve_position",
         zha_translation_key="valve_closing_degree",  # "Valve closing degree"
         zha_attribute="valve_closing_degree",
     ),
-    _RoleSpec(
+    RoleSpec(
         EntityRole(ROLE_EXTERNAL_TEMPERATURE, ("number",)),
         z2m_name="external_temperature_input",
         zha_translation_key="external_temperature_sensor_value",
         zha_attribute="external_temperature_sensor_value",
     ),
-    _RoleSpec(
+    RoleSpec(
         EntityRole(ROLE_SENSOR_SELECT, ("select", "switch")),
         z2m_name="temperature_sensor_select",
         zha_translation_key="external_temperature_sensor",  # a switch
         zha_attribute="external_temperature_sensor_enable",
     ),
     # Optional roles, only used by check_configuration.
-    _RoleSpec(
+    RoleSpec(
         EntityRole(ROLE_ADAPTIVE_CONTROL, ("switch",), required=False),
         z2m_name="smart_temperature_control",  # from the Z2M docs, not re-read
         zha_translation_key="adaptive_mode",  # a switch, on = adaptive
     ),
-    _RoleSpec(
+    RoleSpec(
         EntityRole(ROLE_OPEN_WINDOW, ("switch",), required=False),
         z2m_name="open_window",
         zha_translation_key="open_window",
@@ -154,21 +134,6 @@ _ROLE_SPECS: tuple[_RoleSpec, ...] = (
 )
 
 _REQUIRED_ROLES = tuple(spec.role.key for spec in _ROLE_SPECS if spec.role.required)
-
-
-def _matches(entry: er.RegistryEntry, spec: _RoleSpec) -> bool:
-    """Return True when a registry entry is the entity of a role."""
-    if entry.domain not in spec.role.domains:
-        return False
-    unique_id = entry.unique_id or ""
-    if entry.platform == Z2M_PLATFORM:
-        name = spec.z2m_name
-        return f"_{name}_" in unique_id or unique_id.endswith(f"_{name}")
-    if entry.platform == ZHA_PLATFORM:
-        if entry.translation_key == spec.zha_translation_key:
-            return True
-        return bool(spec.zha_attribute) and unique_id.endswith(f"-{spec.zha_attribute}")
-    return False
 
 
 class SonoffTrvZbtQuirk(BaseQuirk):
@@ -189,7 +154,7 @@ class SonoffTrvZbtQuirk(BaseQuirk):
         ZHA reports the model ``TRV-ZBT``; Zigbee2MQTT reports a description
         ending with ``(TRV-ZBT)``, so the model is searched as a substring.
         """
-        if (device.manufacturer or "").strip().upper() != TRV_ZBT_MANUFACTURER:
+        if not is_sonoff(device):
             return False
         models = [device.model or "", getattr(device, "model_id", None) or ""]
         return any(TRV_ZBT_MODEL in model.upper() for model in models)
@@ -202,15 +167,7 @@ class SonoffTrvZbtQuirk(BaseQuirk):
 
         On ZHA the valve entities are disabled by default.
         """
-        registry = er.async_get(hass)
-        found: dict[str, str | None] = {spec.role.key: None for spec in _ROLE_SPECS}
-        for entry in er.async_entries_for_device(
-            registry, device.id, include_disabled_entities=True
-        ):
-            for spec in _ROLE_SPECS:
-                if found[spec.role.key] is None and _matches(entry, spec):
-                    found[spec.role.key] = entry.entity_id
-        return found
+        return discover_role_entities(hass, device, _ROLE_SPECS)
 
     @classmethod
     def entity_roles(cls) -> list[EntityRole]:
