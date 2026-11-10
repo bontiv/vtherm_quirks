@@ -21,18 +21,11 @@ the repairs and left alone until VTherm changes mode.
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import voluptuous as vol
-from homeassistant.core import Event, HomeAssistant, State, callback
+from homeassistant.core import State, callback
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.helpers.event import (
-    EventStateChangedData,
-    async_track_state_change_event,
-)
 from homeassistant.helpers.selector import BooleanSelector
 
 from ..const import (
@@ -46,9 +39,6 @@ from .base import BaseQuirk, QuirkIssue
 
 if TYPE_CHECKING:
     from homeassistant.helpers.device_registry import DeviceEntry
-    from vtherm_api import InterfaceThermostatRuntime
-
-_LOGGER = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Moes TRV801 / Tuya TRV601
@@ -63,8 +53,6 @@ _LOGGER = logging.getLogger(__name__)
 TRV601_MODELS = ("TRV601", "TRV801_1", "SBDV-00185")  # names verified, registry form not
 # Zigbee fingerprints (manufacturer name): Moes TRV801_1 and Sber SBDV-00185.
 TRV601_FINGERPRINTS = ("_TZE204_rtrmfadk", "_TZE204_cvcu2p6e")  # verified
-
-Z2M_PLATFORM = "mqtt"  # Zigbee2MQTT entities come from the MQTT integration
 
 # Presets of the climate entity of the TRV (the Tuya data point 1).
 PRESET_MANUAL = "manual"  # verified: regulation on the setpoint
@@ -124,18 +112,8 @@ class MoesTrv601Quirk(BaseQuirk):
     # ------------------------------------------------------------------
     # Instance
     # ------------------------------------------------------------------
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        runtime: InterfaceThermostatRuntime,
-        underlying_entity_id: str,
-        entities: Mapping[str, str | None],
-        options: Mapping[str, Any],
-    ) -> None:
-        super().__init__(hass, runtime, underlying_entity_id, entities, options)
-        self._tasks: set[Any] = set()
-        self._unsub_state: Any = None
-        self._unsub_started: Any = None
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
         # Mode announced by the last hook and the mode of VTherm at that time:
         # the hook mode only holds while VTherm keeps this mode (the core can
         # turn the underlying off, for a window, while VTherm stays in heat).
@@ -145,20 +123,15 @@ class MoesTrv601Quirk(BaseQuirk):
         self._target: str | None = None
         self._corrections = 0
         self._stuck: QuirkIssue | None = None
+        # Last preset sent and when.
         self._sent_target: str | None = None
         self._sent_at: float | None = None
+        # Outdated converter last reported to the repairs.
         self._outdated = False
 
     # -- helpers -------------------------------------------------------
-    @property
-    def _keep_schedule(self) -> bool:
-        return bool(self.options.get(OPT_KEEP_SCHEDULE))
-
     def _now(self) -> float:
         return self.hass.loop.time()
-
-    def _trv_state(self) -> State | None:
-        return self.hass.states.get(self.underlying_entity_id)
 
     def _runtime_mode(self) -> str | None:
         mode = getattr(self.runtime, "vtherm_hvac_mode", None)
@@ -176,7 +149,7 @@ class MoesTrv601Quirk(BaseQuirk):
         return PRESET_OFF if mode == HVAC_OFF else PRESET_MANUAL
 
     def _accepted(self, target: str) -> tuple[str, ...]:
-        if target == PRESET_MANUAL and self._keep_schedule:
+        if target == PRESET_MANUAL and self.options.get(OPT_KEEP_SCHEDULE):
             return (PRESET_MANUAL, PRESET_AUTO)
         return (target,)
 
@@ -187,48 +160,26 @@ class MoesTrv601Quirk(BaseQuirk):
         preset = state.attributes.get("preset_mode")
         return str(preset) if preset else None
 
-    def _spawn(self, coro: Any, name: str) -> None:
-        """Run a short background job and keep a reference to cancel it at stop."""
-        task = self.hass.async_create_background_task(
-            coro, f"vtherm_quirks {name} {self.underlying_entity_id}"
-        )
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+    @staticmethod
+    def _is_outdated(state: State, preset: str) -> bool:
+        """Preset manual shown as state auto: Zigbee2MQTT converter without the fix."""
+        return preset == PRESET_MANUAL and state.state == PRESET_AUTO
 
     def _send_preset(self, preset: str) -> None:
-        """Start the preset change in a background task, without waiting for it."""
+        """Set the preset in a background task, without waiting for the TRV."""
         self._sent_target = preset
         self._sent_at = self._now()
-        self._spawn(self._async_set_preset(preset), f"preset {preset}")
-
-    async def _async_set_preset(self, preset: str) -> None:
-        """Call climate.set_preset_mode, a failure is logged and never raised."""
-        _LOGGER.debug("%s - setting the preset %s", self.underlying_entity_id, preset)
-        try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_preset_mode",
-                {"entity_id": self.underlying_entity_id, "preset_mode": preset},
-                blocking=False,
-            )
-        except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.warning(
-                "%s - climate.set_preset_mode %s failed: %s",
-                self.underlying_entity_id,
-                preset,
-                err,
-            )
+        data = {"entity_id": self.underlying_entity_id, "preset_mode": preset}
+        self.spawn(
+            self.call_service("climate", "set_preset_mode", data, blocking=False),
+            f"preset {preset}",
+        )
 
     def _change_target(self, target: str) -> None:
         """A new preset is wanted: forget the corrections and the stuck issue."""
         if target == self._target:
             return
-        _LOGGER.debug(
-            "%s - wanted preset changes from %s to %s, corrections reset",
-            self.underlying_entity_id,
-            self._target,
-            target,
-        )
+        self.log.debug("wanted preset %s -> %s, corrections reset", self._target, target)
         self._target = target
         self._corrections = 0
         self._sent_target = None
@@ -236,56 +187,11 @@ class MoesTrv601Quirk(BaseQuirk):
             self._stuck = None
             self.request_issue_sync()
 
-    # -- lifecycle -----------------------------------------------------
-    async def async_start(self) -> None:
-        """Listen to the TRV and check its preset once at startup."""
-        if self._unsub_state is not None:
-            _LOGGER.debug("%s - async_start: already started", self.underlying_entity_id)
-            return
-        self._unsub_state = async_track_state_change_event(
-            self.hass, [self.underlying_entity_id], self._on_trv_state
-        )
-        if self.hass.is_running:
-            _LOGGER.debug(
-                "%s - async_start: listening to the TRV, checking the preset now",
-                self.underlying_entity_id,
-            )
-            self._enforce()
-        else:
-            _LOGGER.debug(
-                "%s - async_start: listening to the TRV, preset check deferred until Home Assistant has started",
-                self.underlying_entity_id,
-            )
-            from homeassistant.helpers.start import async_at_started  # noqa: PLC0415
-
-            self._unsub_started = async_at_started(
-                self.hass, self._async_startup_check_at_started
-            )
-
-    async def _async_startup_check_at_started(self, _hass: HomeAssistant) -> None:
-        self._unsub_started = None
+    # -- lifecycle and hook --------------------------------------------
+    async def async_startup(self) -> None:
+        """Check the preset once Home Assistant is running."""
         self._enforce()
 
-    async def async_stop(self) -> None:
-        """Stop listening and cancel the running calls."""
-        _LOGGER.debug(
-            "%s - async_stop: %s background task(s) to cancel",
-            self.underlying_entity_id,
-            len(self._tasks),
-        )
-        if self._unsub_state is not None:
-            self._unsub_state()
-            self._unsub_state = None
-        if self._unsub_started is not None:
-            self._unsub_started()
-            self._unsub_started = None
-        tasks = list(self._tasks)
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.wait(tasks)
-
-    # -- hook ----------------------------------------------------------
     async def async_before_underlying_hvac_mode(
         self,
         climate_entity_id: str,
@@ -295,120 +201,50 @@ class MoesTrv601Quirk(BaseQuirk):
     ) -> None:
         """Set the preset that matches the mode, without waiting for the TRV."""
         if climate_entity_id != self.underlying_entity_id:
-            _LOGGER.debug(
-                "%s - before hvac mode ignored: climate %s is not this underlying",
-                self.underlying_entity_id,
-                climate_entity_id,
-            )
             return
         mode = str(hvac_mode)
         self._hook_mode = mode
         self._hook_runtime_mode = self._runtime_mode()
         target = self._target_preset(mode)
         self._change_target(target)
-        state = self._trv_state()
-        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            _LOGGER.debug(
-                "%s - before hvac mode %s: TRV unavailable (state %s), preset left as is",
-                self.underlying_entity_id,
-                mode,
-                None if state is None else state.state,
-            )
+        if not self.underlying_available:
+            self.log.debug("TRV unavailable, preset %s not sent", target)
             return
-        preset = self._preset_of(state)
-        if preset not in self._accepted(target):
-            _LOGGER.debug(
-                "%s - before hvac mode %s (current %s, cause %s): target preset %s, current preset %s, accepted %s: sending the preset",
-                self.underlying_entity_id,
-                mode,
-                current_hvac_mode,
-                command_cause,
-                target,
-                preset,
-                self._accepted(target),
-            )
+        if self._preset_of(self.underlying_state) not in self._accepted(target):
             self._send_preset(target)
-        else:
-            _LOGGER.debug(
-                "%s - before hvac mode %s (current %s, cause %s): target preset %s, current preset %s is accepted %s: nothing sent",
-                self.underlying_entity_id,
-                mode,
-                current_hvac_mode,
-                command_cause,
-                target,
-                preset,
-                self._accepted(target),
-            )
 
     # -- TRV state tracking --------------------------------------------
     @callback
-    def _on_trv_state(self, event: Event[EventStateChangedData]) -> None:
-        if event.data["new_state"] is None:
-            return
+    def on_underlying_state(self, old_state: State | None, new_state: State) -> None:
         self._enforce()
 
     def _enforce(self) -> None:
         """Check the preset against the wanted mode and correct it if needed."""
-        state = self._trv_state()
+        state = self.underlying_state
         preset = self._preset_of(state)
-        if preset is None:
-            _LOGGER.debug(
-                "%s - enforce: no usable preset (state %s), nothing to check",
-                self.underlying_entity_id,
-                None if state is None else state.state,
-            )
+        if state is None or preset is None:
             return
-        self._check_outdated(state, preset)
+        if (outdated := self._is_outdated(state, preset)) != self._outdated:
+            self._outdated = outdated
+            self.request_issue_sync()
+
         mode = self._wanted_mode()
         if mode is None:
-            _LOGGER.debug(
-                "%s - enforce: preset %s, wanted mode unknown, nothing to check",
-                self.underlying_entity_id,
-                preset,
-            )
             return
         target = self._target_preset(mode)
         self._change_target(target)
-        if preset in self._accepted(target):
-            _LOGGER.debug(
-                "%s - enforce: ok, state %s, preset %s, wanted mode %s, target %s, accepted %s",
-                self.underlying_entity_id,
-                None if state is None else state.state,
-                preset,
-                mode,
-                target,
-                self._accepted(target),
-            )
-            return
-        if self._stuck is not None:
-            _LOGGER.debug(
-                "%s - enforce: stuck, preset %s instead of %s, left alone until the mode changes",
-                self.underlying_entity_id,
-                preset,
-                target,
-            )
+        if preset in self._accepted(target) or self._stuck is not None:
             return
         if (
             self._sent_target == target
             and self._sent_at is not None
             and self._now() - self._sent_at < RESEND_DELAY
         ):
-            _LOGGER.debug(
-                "%s - enforce: preset %s instead of %s, but %s was sent %.1fs ago (resend delay %ss), waiting",
-                self.underlying_entity_id,
-                preset,
-                target,
-                target,
-                self._now() - self._sent_at,
-                RESEND_DELAY,
-            )
+            self.log.debug("preset %s instead of %s, waiting for the TRV", preset, target)
             return
         if self._corrections >= MAX_CORRECTIONS:
-            _LOGGER.warning(
-                "%s - the preset keeps leaving %s (now %s), corrections stopped",
-                self.underlying_entity_id,
-                target,
-                preset,
+            self.log.warning(
+                "the preset keeps leaving %s (now %s), corrections stopped", target, preset
             )
             self._stuck = QuirkIssue(
                 ISSUE_PRESET_KEEPS_CHANGING,
@@ -417,9 +253,8 @@ class MoesTrv601Quirk(BaseQuirk):
             self.request_issue_sync()
             return
         self._corrections += 1
-        _LOGGER.info(
-            "%s - preset %s instead of %s, correction %s/%s",
-            self.underlying_entity_id,
+        self.log.info(
+            "preset %s instead of %s, correction %s/%s",
             preset,
             target,
             self._corrections,
@@ -427,31 +262,14 @@ class MoesTrv601Quirk(BaseQuirk):
         )
         self._send_preset(target)
 
-    def _check_outdated(self, state: State | None, preset: str) -> None:
-        """Preset manual shown as auto: Zigbee2MQTT converter without the fix."""
-        outdated = (
-            state is not None and preset == PRESET_MANUAL and state.state == PRESET_AUTO
-        )
-        if outdated != self._outdated:
-            _LOGGER.debug(
-                "%s - outdated converter %s -> %s (state %s, preset %s)",
-                self.underlying_entity_id,
-                self._outdated,
-                outdated,
-                None if state is None else state.state,
-                preset,
-            )
-            self._outdated = outdated
-            self.request_issue_sync()
-
     # -- checks --------------------------------------------------------
     def check_configuration(self) -> list[QuirkIssue]:
         """Report the converter that is too old and a TRV that leaves its preset."""
-        issues: list[QuirkIssue] = []
-        state = self._trv_state()
+        state = self.underlying_state
         preset = self._preset_of(state)
-        if preset is not None and state is not None:
-            self._outdated = preset == PRESET_MANUAL and state.state == PRESET_AUTO
+        if state is not None and preset is not None:
+            self._outdated = self._is_outdated(state, preset)
+        issues: list[QuirkIssue] = []
         if self._outdated:
             issues.append(
                 QuirkIssue(ISSUE_OUTDATED_CONVERTER, severity=ir.IssueSeverity.ERROR)

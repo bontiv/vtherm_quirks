@@ -16,19 +16,12 @@ This quirk reproduces and replaces the "Sonoff TRV-ZBT valve kick" blueprint:
 from __future__ import annotations
 
 import asyncio
-import logging
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import voluptuous as vol
-from homeassistant.core import Event, HomeAssistant, State, callback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import (
-    EventStateChangedData,
-    async_call_later,
-    async_track_state_change_event,
-)
 from homeassistant.helpers.selector import (
     BooleanSelector,
     NumberSelector,
@@ -51,13 +44,11 @@ from ..const import (
     VT_CONF_OPENING_DEGREE_LIST,
     VT_CONF_SYNC_DEVICE_INTERNAL_TEMP,
 )
-from .base import BaseQuirk, EntityRole, QuirkIssue
+from .base import BaseQuirk, EntityRole, QuirkIssue, clamp_temperature, to_float
 
 if TYPE_CHECKING:
     from homeassistant.helpers.device_registry import DeviceEntry
-    from vtherm_api import InterfaceThermostatRuntime, ValveCommand
-
-_LOGGER = logging.getLogger(__name__)
+    from vtherm_api import ValveCommand
 
 # ---------------------------------------------------------------------------
 # Sonoff TRV-ZBT
@@ -69,32 +60,15 @@ _LOGGER = logging.getLogger(__name__)
 TRV_ZBT_MANUFACTURER = "SONOFF"  # verified (ZHA and Z2M)
 TRV_ZBT_MODEL = "TRV-ZBT"  # verified (ZHA model, Z2M zigbeeModel/model)
 
-# Zigbee2MQTT: the exposes names are verified. The entity registry unique_id of
-# a Z2M entity is "<ieee>_<expose name>_<base topic>" (from the Home Assistant
-# MQTT discovery of Z2M, not re-read in the Z2M sources): it is matched by
-# "contains _<name>_" or "ends with _<name>".
 Z2M_PLATFORM = "mqtt"
-Z2M_HEATING_POSITION = "heating_valve_position"  # verified
-Z2M_IDLE_POSITION = "idle_valve_position"  # verified
-Z2M_EXTERNAL_TEMPERATURE = "external_temperature_input"  # verified
-Z2M_SENSOR_SELECT = "temperature_sensor_select"  # verified
+ZHA_PLATFORM = "zha"
+# Options of the Z2M temperature_sensor_select (ZHA uses an on/off switch).
 Z2M_SENSOR_LOCAL_OPTION = "local_temperature"  # verified
 Z2M_SENSOR_REMOTE_OPTION = "remote_temperature"  # verified
-Z2M_ADAPTIVE_CONTROL = "smart_temperature_control"  # name taken from the Z2M docs, not re-read
-Z2M_OPEN_WINDOW = "open_window"  # verified
 
-# ZHA: translation keys of the entities (verified in the TRV-ZBT device dump and
-# in the quirk). The attribute names are the unique_id suffix of these entities
-# (ZHA unique_id = "<ieee>-<endpoint>-<cluster>-<attribute>"): used as a
-# fallback only, not verified against a real entity registry.
-ZHA_PLATFORM = "zha"
-ZHA_HEATING_POSITION = "valve_opening_degree"  # verified: "Valve opening degree"
-ZHA_IDLE_POSITION = "valve_closing_degree"  # verified: "Valve closing degree"
-ZHA_EXTERNAL_TEMPERATURE = "external_temperature_sensor_value"  # verified
-ZHA_SENSOR_SWITCH = "external_temperature_sensor"  # verified (a switch)
-ZHA_SENSOR_SWITCH_ATTRIBUTE = "external_temperature_sensor_enable"  # fallback, quirk attribute
-ZHA_ADAPTIVE_CONTROL = "adaptive_mode"  # verified (a switch, on = adaptive)
-ZHA_OPEN_WINDOW = "open_window"  # verified (a switch)
+# Range of external_temperature_input of the TRV-ZBT.
+TRV_ZBT_MIN_EXTERNAL_TEMPERATURE = 0.0
+TRV_ZBT_MAX_EXTERNAL_TEMPERATURE = 99.9
 
 # Quirk options
 OPT_TEMPERATURE_SOURCE = "temperature_source"
@@ -111,9 +85,6 @@ MAX_DELTA = 5.0
 DEFAULT_PULSE_DELAY = 5
 MIN_PULSE_DELAY = 1
 MAX_PULSE_DELAY = 60
-# Range of external_temperature_input of the TRV-ZBT.
-TRV_ZBT_MIN_EXTERNAL_TEMPERATURE = 0.0
-TRV_ZBT_MAX_EXTERNAL_TEMPERATURE = 99.9
 
 # Roles of the quirk
 ROLE_HEATING_POSITION = "heating_position"
@@ -126,7 +97,17 @@ ROLE_OPEN_WINDOW = "open_window"
 
 @dataclass(frozen=True, slots=True)
 class _RoleSpec:
-    """How to recognize the entity of a role on each integration."""
+    """How to recognize the entity of a role on each integration.
+
+    Zigbee2MQTT: the unique_id of an entity is "<ieee>_<expose name>_<base
+    topic>" (from the MQTT discovery of Z2M, not re-read in the Z2M sources),
+    matched by "contains _<name>_" or "ends with _<name>". The expose names
+    are verified.
+
+    ZHA: the translation key is verified (TRV-ZBT device dump and quirk). The
+    attribute is the unique_id suffix ("<ieee>-<endpoint>-<cluster>-<attribute>"),
+    a fallback that was not checked against a real entity registry.
+    """
 
     role: EntityRole
     z2m_name: str
@@ -137,44 +118,42 @@ class _RoleSpec:
 _ROLE_SPECS: tuple[_RoleSpec, ...] = (
     _RoleSpec(
         EntityRole(ROLE_HEATING_POSITION, ("number",)),
-        Z2M_HEATING_POSITION,
-        ZHA_HEATING_POSITION,
-        ZHA_HEATING_POSITION,
+        z2m_name="heating_valve_position",
+        zha_translation_key="valve_opening_degree",  # "Valve opening degree"
+        zha_attribute="valve_opening_degree",
     ),
     _RoleSpec(
         EntityRole(ROLE_IDLE_POSITION, ("number",)),
-        Z2M_IDLE_POSITION,
-        ZHA_IDLE_POSITION,
-        ZHA_IDLE_POSITION,
+        z2m_name="idle_valve_position",
+        zha_translation_key="valve_closing_degree",  # "Valve closing degree"
+        zha_attribute="valve_closing_degree",
     ),
     _RoleSpec(
         EntityRole(ROLE_EXTERNAL_TEMPERATURE, ("number",)),
-        Z2M_EXTERNAL_TEMPERATURE,
-        ZHA_EXTERNAL_TEMPERATURE,
-        ZHA_EXTERNAL_TEMPERATURE,
+        z2m_name="external_temperature_input",
+        zha_translation_key="external_temperature_sensor_value",
+        zha_attribute="external_temperature_sensor_value",
     ),
     _RoleSpec(
         EntityRole(ROLE_SENSOR_SELECT, ("select", "switch")),
-        Z2M_SENSOR_SELECT,
-        ZHA_SENSOR_SWITCH,
-        ZHA_SENSOR_SWITCH_ATTRIBUTE,
+        z2m_name="temperature_sensor_select",
+        zha_translation_key="external_temperature_sensor",  # a switch
+        zha_attribute="external_temperature_sensor_enable",
     ),
     # Optional roles, only used by check_configuration.
     _RoleSpec(
         EntityRole(ROLE_ADAPTIVE_CONTROL, ("switch",), required=False),
-        Z2M_ADAPTIVE_CONTROL,
-        ZHA_ADAPTIVE_CONTROL,
+        z2m_name="smart_temperature_control",  # from the Z2M docs, not re-read
+        zha_translation_key="adaptive_mode",  # a switch, on = adaptive
     ),
     _RoleSpec(
         EntityRole(ROLE_OPEN_WINDOW, ("switch",), required=False),
-        Z2M_OPEN_WINDOW,
-        ZHA_OPEN_WINDOW,
+        z2m_name="open_window",
+        zha_translation_key="open_window",
     ),
 )
 
-_REQUIRED_ROLES = tuple(
-    spec.role.key for spec in _ROLE_SPECS if spec.role.required
-)
+_REQUIRED_ROLES = tuple(spec.role.key for spec in _ROLE_SPECS if spec.role.required)
 
 
 def _matches(entry: er.RegistryEntry, spec: _RoleSpec) -> bool:
@@ -183,35 +162,13 @@ def _matches(entry: er.RegistryEntry, spec: _RoleSpec) -> bool:
         return False
     unique_id = entry.unique_id or ""
     if entry.platform == Z2M_PLATFORM:
-        return f"_{spec.z2m_name}_" in unique_id or unique_id.endswith(
-            f"_{spec.z2m_name}"
-        )
+        name = spec.z2m_name
+        return f"_{name}_" in unique_id or unique_id.endswith(f"_{name}")
     if entry.platform == ZHA_PLATFORM:
         if entry.translation_key == spec.zha_translation_key:
             return True
-        return bool(spec.zha_attribute) and unique_id.endswith(
-            f"-{spec.zha_attribute}"
-        )
+        return bool(spec.zha_attribute) and unique_id.endswith(f"-{spec.zha_attribute}")
     return False
-
-
-def _to_float(value: Any) -> float | None:
-    """Convert a state or an attribute to a float, None when impossible."""
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _clamp_temperature(value: float) -> float:
-    """Keep a fake temperature in the accepted range of the TRV."""
-    return round(
-        max(
-            TRV_ZBT_MIN_EXTERNAL_TEMPERATURE,
-            min(TRV_ZBT_MAX_EXTERNAL_TEMPERATURE, value),
-        ),
-        1,
-    )
 
 
 class SonoffTrvZbtQuirk(BaseQuirk):
@@ -232,8 +189,7 @@ class SonoffTrvZbtQuirk(BaseQuirk):
         ZHA reports the model ``TRV-ZBT``; Zigbee2MQTT reports a description
         ending with ``(TRV-ZBT)``, so the model is searched as a substring.
         """
-        manufacturer = (device.manufacturer or "").strip().upper()
-        if manufacturer != TRV_ZBT_MANUFACTURER:
+        if (device.manufacturer or "").strip().upper() != TRV_ZBT_MANUFACTURER:
             return False
         models = [device.model or "", getattr(device, "model_id", None) or ""]
         return any(TRV_ZBT_MODEL in model.upper() for model in models)
@@ -302,17 +258,10 @@ class SonoffTrvZbtQuirk(BaseQuirk):
     # ------------------------------------------------------------------
     # Instance
     # ------------------------------------------------------------------
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        runtime: InterfaceThermostatRuntime,
-        underlying_entity_id: str,
-        entities: Mapping[str, str | None],
-        options: Mapping[str, Any],
-    ) -> None:
-        super().__init__(hass, runtime, underlying_entity_id, entities, options)
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
         self._kick_task: asyncio.Task | None = None
-        self._tasks: set[asyncio.Task] = set()
+        # A kick was requested while one was running: run one more after it.
         self._pending = False
         # Opening of the last kick started or pending: a regulation cycle that
         # sends the same opening again does not kick again.
@@ -322,78 +271,33 @@ class SonoffTrvZbtQuirk(BaseQuirk):
         # True after a hook announced the TRV leaving OFF: the kick has no
         # effect while the TRV is off, so it waits for the TRV state.
         self._wait_heat = False
-        self._unsub_state: Any = None
-        self._unsub_started: Any = None
 
-    # -- small helpers -------------------------------------------------
+    # -- device access -------------------------------------------------
     def _entity(self, role: str) -> str | None:
         return self.entities.get(role) or None
 
     def _state(self, entity_id: str | None) -> State | None:
         return self.hass.states.get(entity_id) if entity_id else None
 
-    def _trv_state(self) -> State | None:
-        return self.hass.states.get(self.underlying_entity_id)
-
-    def _trv_is_unavailable(self) -> bool:
-        state = self._trv_state()
-        return state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
-
     def _trv_is_off(self) -> bool:
-        state = self._trv_state()
+        state = self.underlying_state
         return state is not None and state.state == HVAC_OFF
 
     @property
     def _source_is_remote(self) -> bool:
         return self.options.get(OPT_TEMPERATURE_SOURCE) == TEMPERATURE_SOURCE_REMOTE
 
-    async def _call(
-        self, domain: str, service: str, data: dict[str, Any], blocking: bool
-    ) -> bool:
-        """Call a service, a failure is logged and never raised."""
-        _LOGGER.debug(
-            "%s - calling %s.%s %s (blocking=%s)",
-            self.underlying_entity_id,
-            domain,
-            service,
-            data,
-            blocking,
-        )
-        try:
-            await self.hass.services.async_call(
-                domain, service, data, blocking=blocking
-            )
-        except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.warning(
-                "%s - %s.%s %s failed: %s",
-                self.underlying_entity_id,
-                domain,
-                service,
-                data,
-                err,
-            )
-            return False
-        return True
-
-    async def _set_number(
-        self, entity_id: str, value: float, *, blocking: bool = True
-    ) -> bool:
-        return await self._call(
-            "number",
-            "set_value",
-            {"entity_id": entity_id, "value": value},
-            blocking,
-        )
+    async def _set_number(self, entity_id: str, value: float, *, blocking: bool = True) -> bool:
+        data = {"entity_id": entity_id, "value": value}
+        return await self.call_service("number", "set_value", data, blocking=blocking)
 
     def _is_external(self) -> bool | None:
         """True when the TRV uses the external temperature, None when unknown."""
         entity_id = self._entity(ROLE_SENSOR_SELECT)
         state = self._state(entity_id)
-        if entity_id is None or state is None:
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return None
-        if state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            return None
-        if entity_id.startswith("switch."):
+        if entity_id.startswith("switch."):  # ZHA
             return state.state == "on"
         return state.state == Z2M_SENSOR_REMOTE_OPTION
 
@@ -401,214 +305,63 @@ class SonoffTrvZbtQuirk(BaseQuirk):
         """Select the external (True) or the built-in (False) temperature sensor."""
         entity_id = self._entity(ROLE_SENSOR_SELECT)
         if entity_id is None:
-            _LOGGER.debug(
-                "%s - no sensor_select entity, temperature source not switched to %s",
-                self.underlying_entity_id,
-                "external" if external else "built-in",
-            )
             return False
-        if entity_id.startswith("switch."):
-            return await self._call(
-                "switch",
-                "turn_on" if external else "turn_off",
-                {"entity_id": entity_id},
-                blocking,
+        if entity_id.startswith("switch."):  # ZHA
+            service = "turn_on" if external else "turn_off"
+            return await self.call_service(
+                "switch", service, {"entity_id": entity_id}, blocking=blocking
             )
         option = Z2M_SENSOR_REMOTE_OPTION if external else Z2M_SENSOR_LOCAL_OPTION
-        return await self._call(
+        return await self.call_service(
             "select",
             "select_option",
             {"entity_id": entity_id, "option": option},
-            blocking,
+            blocking=blocking,
         )
 
     async def _write_idle(self, value: int, *, blocking: bool) -> None:
-        """Write idle_valve_position when it differs from the current value."""
+        """Write idle_valve_position, unless it already has this value or is unavailable."""
         entity_id = self._entity(ROLE_IDLE_POSITION)
         state = self._state(entity_id)
-        if entity_id is None:
-            _LOGGER.debug(
-                "%s - idle write of %s skipped: no idle_position entity",
-                self.underlying_entity_id,
-                value,
-            )
+        if state is None or state.state == STATE_UNAVAILABLE:
+            self.log.debug("idle %s not written: %s missing or unavailable", value, entity_id)
             return
-        if state is None:
-            _LOGGER.debug(
-                "%s - idle write of %s skipped: no state for %s",
-                self.underlying_entity_id,
-                value,
-                entity_id,
-            )
+        if to_float(state.state) == value and self._last_idle_written in (None, value):
             return
-        if state.state == STATE_UNAVAILABLE:
-            _LOGGER.debug(
-                "%s - idle write of %s skipped: %s is unavailable",
-                self.underlying_entity_id,
-                value,
-                entity_id,
-            )
-            return
-        current = _to_float(state.state)
-        if (
-            current is not None
-            and current == value
-            and self._last_idle_written in (None, value)
-        ):
-            _LOGGER.debug(
-                "%s - idle write of %s skipped: %s already at %s (last written %s)",
-                self.underlying_entity_id,
-                value,
-                entity_id,
-                current,
-                self._last_idle_written,
-            )
-            return
-        _LOGGER.debug(
-            "%s - writing idle position %s to %s (current %s, last written %s, blocking=%s)",
-            self.underlying_entity_id,
-            value,
-            entity_id,
-            state.state,
-            self._last_idle_written,
-            blocking,
-        )
         if await self._set_number(entity_id, value, blocking=blocking):
             self._last_idle_written = value
 
-    def _spawn(self, coro, name: str) -> None:
-        """Run a short background job and keep a reference to cancel it at stop."""
-        task = self.hass.async_create_background_task(
-            coro, f"vtherm_quirks {name} {self.underlying_entity_id}"
-        )
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-
-    async def _sleep(self, seconds: float) -> None:
-        """Sleep with a Home Assistant timer (cancellable, driven by the HA clock)."""
-        future: asyncio.Future[None] = self.hass.loop.create_future()
-
-        @callback
-        def _done(_now) -> None:
-            if not future.done():
-                future.set_result(None)
-
-        cancel = async_call_later(self.hass, seconds, _done)
-        try:
-            await future
-        finally:
-            cancel()
-
     # -- lifecycle -----------------------------------------------------
-    async def async_start(self) -> None:
-        """Listen to the TRV and put the device back in a clean state."""
-        if self._unsub_state is not None:
-            _LOGGER.debug("%s - async_start: already started", self.underlying_entity_id)
-            return
-        self._unsub_state = async_track_state_change_event(
-            self.hass, [self.underlying_entity_id], self._on_trv_state
-        )
-        if self.hass.is_running:
-            _LOGGER.debug(
-                "%s - async_start: listening to the TRV, startup check now",
-                self.underlying_entity_id,
-            )
-            await self._async_startup_check()
-        else:
-            _LOGGER.debug(
-                "%s - async_start: listening to the TRV, startup check deferred until Home Assistant has started",
-                self.underlying_entity_id,
-            )
-            from homeassistant.helpers.start import async_at_started  # noqa: PLC0415
-
-            self._unsub_started = async_at_started(
-                self.hass, self._async_startup_check_at_started
-            )
-
-    async def _async_startup_check_at_started(self, _hass: HomeAssistant) -> None:
-        self._unsub_started = None
-        await self._async_startup_check()
-
-    async def _async_startup_check(self) -> None:
+    async def async_startup(self) -> None:
         """Restore a source left external and close the valve of an OFF TRV."""
-        _LOGGER.debug(
-            "%s - startup check: source_is_remote=%s, is_external=%s, trv_off=%s",
-            self.underlying_entity_id,
-            self._source_is_remote,
-            self._is_external(),
-            self._trv_is_off(),
-        )
         if not self._source_is_remote and self._is_external() is True:
-            _LOGGER.info(
-                "%s - temperature source left external, restoring it",
-                self.underlying_entity_id,
-            )
+            self.log.info("temperature source left external, restoring it")
             await self._set_sensor(False, blocking=False)
         if self._trv_is_off():
             await self._write_idle(0, blocking=False)
 
-    async def async_stop(self) -> None:
-        """Stop listening, cancel the kick (the finally restores the source)."""
-        _LOGGER.debug(
-            "%s - async_stop: kick running=%s, background tasks=%s",
-            self.underlying_entity_id,
-            self._kick_running(),
-            len(self._tasks),
-        )
-        if self._unsub_state is not None:
-            self._unsub_state()
-            self._unsub_state = None
-        if self._unsub_started is not None:
-            self._unsub_started()
-            self._unsub_started = None
-        await self._cancel_kick()
-        for task in list(self._tasks):
-            task.cancel()
-        if self._tasks:
-            await asyncio.wait(list(self._tasks))
+    # The default async_stop cancels the kick task, whose finally restores the
+    # temperature source.
 
     # -- hooks ---------------------------------------------------------
     async def async_after_valve_command(self, command: ValveCommand) -> None:
         """Sync idle_valve_position and ask for a kick."""
-        cause = str(command.cause)
         self._latest_opening = command.opening_degree
         # The core closes the valve after it sent the OFF mode: the TRV can
         # still read heat in Home Assistant, so trust the command first.
-        if cause == CAUSE_TURN_OFF or str(command.hvac_mode) == HVAC_OFF:
-            _LOGGER.debug(
-                "%s - valve command: cause=%s, hvac_mode=%s, opening=%s: turning off (cause is %s or hvac_mode is %s)",
-                self.underlying_entity_id,
-                cause,
-                command.hvac_mode,
-                command.opening_degree,
-                CAUSE_TURN_OFF,
-                HVAC_OFF,
-            )
+        if str(command.cause) == CAUSE_TURN_OFF or str(command.hvac_mode) == HVAC_OFF:
             await self._async_turn_off()
             return
-        if self._trv_is_unavailable():
-            _LOGGER.debug(
-                "%s - TRV unavailable, valve command ignored",
-                self.underlying_entity_id,
-            )
+        if not self.underlying_available:
+            self.log.debug("TRV unavailable, valve command ignored")
             return
-        trv_off = self._trv_is_off()
-        idle_target = 0 if trv_off else max(0, int(command.opening_degree) - 1)
-        force = cause != CAUSE_REGULATION
-        _LOGGER.debug(
-            "%s - valve command: cause=%s, opening=%s, trv_off=%s (TRV state %s), idle target=%s, kick requested=%s (force=%s)",
-            self.underlying_entity_id,
-            cause,
-            command.opening_degree,
-            trv_off,
-            getattr(self._trv_state(), "state", None),
-            idle_target,
-            not trv_off,
-            force,
-        )
-        await self._write_idle(idle_target, blocking=False)
-        if not trv_off:
-            self._request_kick(command.opening_degree, force=force)
+        if self._trv_is_off():
+            self.log.debug("TRV off: idle position closed, no kick")
+            await self._write_idle(0, blocking=False)
+            return
+        await self._write_idle(max(0, int(command.opening_degree) - 1), blocking=False)
+        force = str(command.cause) != CAUSE_REGULATION
+        self._request_kick(command.opening_degree, force=force)
 
     async def async_before_underlying_hvac_mode(
         self,
@@ -618,41 +371,11 @@ class SonoffTrvZbtQuirk(BaseQuirk):
         command_cause: str | None,
     ) -> None:
         """Close the idle position before the TRV goes OFF, while it still heats."""
-        if hvac_mode == HVAC_OFF:
-            if current_hvac_mode != HVAC_OFF:
-                _LOGGER.debug(
-                    "%s - before hvac mode %s (current %s, cause %s): turning off now",
-                    self.underlying_entity_id,
-                    hvac_mode,
-                    current_hvac_mode,
-                    command_cause,
-                )
-                await self._async_turn_off()
-            else:
-                _LOGGER.debug(
-                    "%s - before hvac mode %s (current %s, cause %s): already off, nothing to do",
-                    self.underlying_entity_id,
-                    hvac_mode,
-                    current_hvac_mode,
-                    command_cause,
-                )
-        elif current_hvac_mode == HVAC_OFF:
-            _LOGGER.debug(
-                "%s - before hvac mode %s (current %s, cause %s): leaving off, waiting for the TRV to heat before the kick",
-                self.underlying_entity_id,
-                hvac_mode,
-                current_hvac_mode,
-                command_cause,
-            )
+        if hvac_mode == HVAC_OFF and current_hvac_mode != HVAC_OFF:
+            await self._async_turn_off()
+        elif hvac_mode != HVAC_OFF and current_hvac_mode == HVAC_OFF:
+            self.log.debug("leaving OFF: the kick waits for the TRV to heat")
             self._wait_heat = True
-        else:
-            _LOGGER.debug(
-                "%s - before hvac mode %s (current %s, cause %s): nothing to do",
-                self.underlying_entity_id,
-                hvac_mode,
-                current_hvac_mode,
-                command_cause,
-            )
 
     async def _async_turn_off(self) -> None:
         """Cancel the kick, restore the source and close idle_valve_position.
@@ -660,78 +383,30 @@ class SonoffTrvZbtQuirk(BaseQuirk):
         Returns only when everything is written: the writes use blocking=True
         because the core awaits the hook before it sends the OFF mode.
         """
-        _LOGGER.debug("%s - turn off: cancelling the kick, closing idle position", self.underlying_entity_id)
+        self.log.debug("turning off: kick cancelled, idle position closed")
         self._last_kick_opening = None
         await self._cancel_kick()
         await self._write_idle(0, blocking=True)
 
-    # -- TRV state tracking --------------------------------------------
     @callback
-    def _on_trv_state(self, event: Event[EventStateChangedData]) -> None:
-        new_state = event.data["new_state"]
-        old_state = event.data["old_state"]
-        if new_state is None:
-            return
-        old_value = None if old_state is None else old_state.state
-        if new_state.state == HVAC_OFF:
-            if old_state is None or old_state.state != HVAC_OFF:
-                _LOGGER.debug(
-                    "%s - TRV state %s -> %s: turning off",
-                    self.underlying_entity_id,
-                    old_value,
-                    new_state.state,
-                )
-                self._spawn(self._async_turn_off(), "turn off")
-            else:
-                _LOGGER.debug(
-                    "%s - TRV state %s -> %s: still off, no action",
-                    self.underlying_entity_id,
-                    old_value,
-                    new_state.state,
-                )
-        elif new_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            was_off = old_state is not None and old_state.state == HVAC_OFF
-            if self._wait_heat or was_off:
-                _LOGGER.debug(
-                    "%s - TRV state %s -> %s: resuming (wait_heat=%s, was_off=%s)",
-                    self.underlying_entity_id,
-                    old_value,
-                    new_state.state,
-                    self._wait_heat,
-                    was_off,
-                )
-                self._wait_heat = False
-                self._spawn(self._async_resume(), "resume")
-            else:
-                _LOGGER.debug(
-                    "%s - TRV state %s -> %s: no action (wait_heat=%s, was_off=%s)",
-                    self.underlying_entity_id,
-                    old_value,
-                    new_state.state,
-                    self._wait_heat,
-                    was_off,
-                )
-        else:
-            _LOGGER.debug(
-                "%s - TRV state %s -> %s: unavailable or unknown, no action",
-                self.underlying_entity_id,
-                old_value,
-                new_state.state,
-            )
+    def on_underlying_state(self, old_state: State | None, new_state: State) -> None:
+        """Turn off with the TRV, kick again when it leaves OFF."""
+        old = None if old_state is None else old_state.state
+        new = new_state.state
+        if new == HVAC_OFF:
+            if old != HVAC_OFF:
+                self.spawn(self._async_turn_off(), "turn off")
+        elif new not in (STATE_UNAVAILABLE, STATE_UNKNOWN) and (
+            self._wait_heat or old == HVAC_OFF
+        ):
+            self._wait_heat = False
+            self.spawn(self._async_resume(), "resume")
 
     async def _async_resume(self) -> None:
         """The TRV left OFF: sync the idle position and kick."""
         if self._latest_opening is None:
-            _LOGGER.debug(
-                "%s - resume skipped: no valve command received yet",
-                self.underlying_entity_id,
-            )
             return
-        _LOGGER.debug(
-            "%s - resume: latest opening %s, syncing idle position and forcing a kick",
-            self.underlying_entity_id,
-            self._latest_opening,
-        )
+        self.log.debug("TRV left OFF, resuming with opening %s", self._latest_opening)
         await self._write_idle(max(0, int(self._latest_opening) - 1), blocking=False)
         self._request_kick(self._latest_opening, force=True)
 
@@ -742,38 +417,18 @@ class SonoffTrvZbtQuirk(BaseQuirk):
     def _request_kick(self, opening: int | None, *, force: bool = False) -> None:
         """Ask for a kick. Requests during a kick are merged into one pending kick."""
         if not force and opening is not None and opening == self._last_kick_opening:
-            _LOGGER.debug(
-                "%s - kick skipped: same opening %s as the last kick and not forced",
-                self.underlying_entity_id,
-                opening,
-            )
             return
         self._last_kick_opening = opening
         if self._kick_running():
-            _LOGGER.debug(
-                "%s - kick for opening %s merged into the pending kick (force=%s)",
-                self.underlying_entity_id,
-                opening,
-                force,
-            )
             self._pending = True
-            return
-        _LOGGER.debug(
-            "%s - kick started for opening %s (force=%s)",
-            self.underlying_entity_id,
-            opening,
-            force,
-        )
-        self._kick_task = self.hass.async_create_background_task(
-            self._kick_loop(), f"vtherm_quirks kick {self.underlying_entity_id}"
-        )
+        else:
+            self._kick_task = self.spawn(self._kick_loop(), "kick")
 
     async def _cancel_kick(self) -> None:
         """Cancel the kick and the pending request, return once the source is restored."""
         self._pending = False
         task = self._kick_task
         if task is not None and not task.done():
-            _LOGGER.debug("%s - cancelling the running kick", self.underlying_entity_id)
             task.cancel()
             await asyncio.wait([task])
         self._kick_task = None
@@ -784,34 +439,24 @@ class SonoffTrvZbtQuirk(BaseQuirk):
             await self._kick_once()
             if not self._pending:
                 return
-            _LOGGER.debug(
-                "%s - a kick was requested during the last one, running it again",
-                self.underlying_entity_id,
-            )
 
     async def _kick_once(self) -> None:
         """One kick: fake a cold room so the TRV switches to heating."""
-        state = self._trv_state()
-        if state is None or state.state in (HVAC_OFF, STATE_UNAVAILABLE, STATE_UNKNOWN):
-            _LOGGER.debug(
-                "%s - TRV off or unavailable (state %s), kick aborted",
-                self.underlying_entity_id,
-                None if state is None else state.state,
-            )
-            self._last_kick_opening = None
-            return
-        setpoint = _to_float(state.attributes.get("temperature"))
-        external_entity = self._entity(ROLE_EXTERNAL_TEMPERATURE)
+        state = self.underlying_state
+        setpoint = None if state is None else to_float(state.attributes.get("temperature"))
+        external = self._entity(ROLE_EXTERNAL_TEMPERATURE)
         if (
-            setpoint is None
-            or external_entity is None
+            state is None
+            or state.state in (HVAC_OFF, STATE_UNAVAILABLE, STATE_UNKNOWN)
+            or setpoint is None
+            or external is None
             or self._entity(ROLE_SENSOR_SELECT) is None
         ):
-            _LOGGER.debug(
-                "%s - kick aborted: setpoint=%s, external_temperature entity=%s, sensor_select entity=%s",
-                self.underlying_entity_id,
+            self.log.debug(
+                "kick aborted: TRV state %s, setpoint %s, external temperature %s, sensor select %s",
+                None if state is None else state.state,
                 setpoint,
-                external_entity,
+                external,
                 self._entity(ROLE_SENSOR_SELECT),
             )
             self._last_kick_opening = None
@@ -819,80 +464,33 @@ class SonoffTrvZbtQuirk(BaseQuirk):
 
         delta = float(self.options.get(OPT_DELTA, DEFAULT_DELTA))
         pulse = float(self.options.get(OPT_PULSE_DELAY, DEFAULT_PULSE_DELAY))
-        saved: float | None = None
+        saved = None
         if self._source_is_remote:
-            saved = _to_float(getattr(self._state(external_entity), "state", None))
+            saved = to_float(getattr(self._state(external), "state", None))
         was_external = self._is_external()
-        _LOGGER.debug(
-            "%s - kick: setpoint=%s, delta=%s, pulse_delay=%s, hot_step=%s, source_is_remote=%s, was_external=%s, saved=%s",
-            self.underlying_entity_id,
-            setpoint,
-            delta,
-            pulse,
-            self.options.get(OPT_HOT_STEP),
-            self._source_is_remote,
-            was_external,
-            saved,
-        )
-
+        bounds = (TRV_ZBT_MIN_EXTERNAL_TEMPERATURE, TRV_ZBT_MAX_EXTERNAL_TEMPERATURE)
+        cold = clamp_temperature(setpoint - delta, *bounds)
+        hot = clamp_temperature(setpoint + delta, *bounds)
+        self.log.debug("kick: setpoint %s, delta %s, pulse %ss", setpoint, delta, pulse)
         # From the first write on, the finally restores the temperature source,
         # whatever happens (end of the kick, cancellation, service error).
         try:
-            cold = _clamp_temperature(setpoint - delta)
-            _LOGGER.debug(
-                "%s - kick: writing fake temperature %s (setpoint %s - delta %s) to %s",
-                self.underlying_entity_id,
-                cold,
-                setpoint,
-                delta,
-                external_entity,
-            )
-            await self._set_number(external_entity, cold)
+            await self._set_number(external, cold)
             if was_external is not True:
-                _LOGGER.debug(
-                    "%s - kick: switching the source to external", self.underlying_entity_id
-                )
                 await self._set_sensor(True)
-            _LOGGER.debug(
-                "%s - kick: waiting %ss", self.underlying_entity_id, pulse
-            )
-            await self._sleep(pulse)
+            await self.async_sleep(pulse)
             if self.options.get(OPT_HOT_STEP):
-                hot = _clamp_temperature(setpoint + delta)
-                _LOGGER.debug(
-                    "%s - kick: hot step, writing fake temperature %s (setpoint %s + delta %s)",
-                    self.underlying_entity_id,
-                    hot,
-                    setpoint,
-                    delta,
-                )
-                await self._set_number(external_entity, hot)
-                _LOGGER.debug(
-                    "%s - kick: waiting %ss after the hot step",
-                    self.underlying_entity_id,
-                    pulse,
-                )
-                await self._sleep(pulse)
-        except asyncio.CancelledError:
-            _LOGGER.debug("%s - kick cancelled", self.underlying_entity_id)
-            raise
+                await self._set_number(external, hot)
+                await self.async_sleep(pulse)
         finally:
-            await self._restore_source(external_entity, saved)
+            await self._restore_source(external, saved)
 
-    async def _restore_source(self, external_entity: str, saved: float | None) -> None:
+    async def _restore_source(self, external: str, saved: float | None) -> None:
         """Last step of the kick, also run on cancellation."""
-        if self._source_is_remote:
-            _LOGGER.debug(
-                "%s - kick: restoring the external temperature %s", self.underlying_entity_id, saved
-            )
-            if saved is not None:
-                await self._set_number(external_entity, saved)
-        else:
-            _LOGGER.debug(
-                "%s - kick: restoring the built-in temperature source",
-                self.underlying_entity_id,
-            )
+        if not self._source_is_remote:
             await self._set_sensor(False)
+        elif saved is not None:
+            await self._set_number(external, saved)
 
     # -- checks --------------------------------------------------------
     def check_configuration(self) -> list[QuirkIssue]:
@@ -901,31 +499,26 @@ class SonoffTrvZbtQuirk(BaseQuirk):
         infos = self.runtime.entry_infos
         index = self.underlying_index
 
+        def configured(key: str) -> str | None:
+            """Entity of this underlying in a VTherm list of entities."""
+            values = infos.get(key) or []
+            return values[index] if index is not None and index < len(values) else None
+
         if infos.get(VT_CONF_SYNC_DEVICE_INTERNAL_TEMP):
             issues.append(QuirkIssue("sync_device_internal_temp"))
 
-        closing = infos.get(VT_CONF_CLOSING_DEGREE_LIST) or []
-        if index is not None and index < len(closing) and closing[index]:
+        if closing := configured(VT_CONF_CLOSING_DEGREE_LIST):
             issues.append(
-                QuirkIssue(
-                    "closing_entity_configured",
-                    placeholders={"entity": str(closing[index])},
-                )
+                QuirkIssue("closing_entity_configured", placeholders={"entity": str(closing)})
             )
 
-        opening = infos.get(VT_CONF_OPENING_DEGREE_LIST) or []
+        opening = configured(VT_CONF_OPENING_DEGREE_LIST)
         heating = self._entity(ROLE_HEATING_POSITION)
-        if (
-            index is not None
-            and index < len(opening)
-            and opening[index]
-            and heating
-            and opening[index] != heating
-        ):
+        if opening and heating and opening != heating:
             issues.append(
                 QuirkIssue(
                     "opening_entity_mismatch",
-                    placeholders={"entity": str(opening[index]), "expected": heating},
+                    placeholders={"entity": str(opening), "expected": heating},
                 )
             )
 
@@ -934,9 +527,7 @@ class SonoffTrvZbtQuirk(BaseQuirk):
             entity_id = self._entity(role)
             entry = registry.async_get(entity_id) if entity_id else None
             if entry is not None and entry.disabled:
-                issues.append(
-                    QuirkIssue("entity_disabled", placeholders={"entity": entity_id})
-                )
+                issues.append(QuirkIssue("entity_disabled", placeholders={"entity": entity_id}))
 
         for role, key in (
             (ROLE_ADAPTIVE_CONTROL, "adaptive_control_enabled"),

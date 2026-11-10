@@ -44,7 +44,7 @@ async def async_on_underlying_power(self, command: UnderlyingPowerCommand) -> No
 Rules every quirk must respect:
 
 - The core awaits the hook, then sends its command. Return fast. The core cuts the call after `UNDERLYING_HOOK_TIMEOUT_SEC` (10 seconds) and sends its command anyway.
-- A long treatment (waiting, retries) runs in a background task owned by the quirk, created with `hass.async_create_background_task`. Keep a reference to cancel it in `async_stop`.
+- A long treatment (waiting, retries) runs in a background task started with `self.spawn(coro, name)`. The default `async_stop` cancels it.
 - Do not queue work: when a request arrives while the task is busy, remember it and run one more round with the latest data at the end (coalescing).
 - Anything that must be done before the core command (for example before a device goes OFF) is written inside the hook, with `blocking=True`, because the core goes on when the hook returns.
 - Restore what you changed in a `finally` block, so that a cancellation leaves the device in a clean state.
@@ -69,16 +69,30 @@ class BaseQuirk:
     def options_schema(cls) -> vol.Schema: ...
 
     def __init__(self, hass, runtime, underlying_entity_id, entities, options): ...
-    async def async_start(self) -> None: ...
-    async def async_stop(self) -> None: ...
+    async def async_startup(self) -> None: ...
+    def on_underlying_state(self, old_state, new_state) -> None: ...
     def check_configuration(self) -> list[QuirkIssue]: ...
+
+    # Helpers, already implemented
+    log                                          # logger, messages prefixed with the underlying
+    underlying_state / underlying_available      # state of the underlying
+    def spawn(self, coro, name) -> asyncio.Task: ...
+    async def call_service(self, domain, service, data, *, blocking=True) -> bool: ...
+    async def async_sleep(self, seconds) -> None: ...
+
+# Module functions of quirks/base.py
+def to_float(value) -> float | None: ...                                 # None instead of an exception
+def clamp_temperature(value, minimum, maximum, digits=1) -> float: ...  # range of the device
 ```
 
 - `match_device` is true when the device registry entry is the model handled. Match on the manufacturer and the model, under every integration you support (the model string differs between Zigbee2MQTT and ZHA).
 - `discover_entities` finds the entities the quirk needs on the device, by role key. Include disabled entities (`include_disabled_entities=True`): some integrations disable them by default. Return `None` for a role that is not found.
 - `entity_roles` lists the roles shown in the config flow, with the accepted domains and whether each one is required. A quirk is configured, and receives hooks, only when all its required roles are filled.
 - `options_schema` describes the options with defaults, so that `options_schema()({})` is valid. Use selectors, they are rendered by the config flow.
-- `async_start` runs at startup: put the device back in a clean state and subscribe to what you need. `async_stop` cancels the running work and restores the device.
+- `async_startup` runs once Home Assistant is running: put the device back in a clean state.
+- `on_underlying_state` is called on each state change of the underlying, only when the quirk defines it. It is a callback: start the work that awaits with `spawn`.
+- The default `async_start` and `async_stop` handle the subscriptions and the tasks. Override them only for something else to undo, and call `super()`.
+- Use the helpers: `call_service` logs a failure and never raises, `async_sleep` is cancellable and follows the clock of the tests (`async_fire_time_changed`), `self.log.debug(...)` adds the underlying to the message. Log the decisions, not every branch: the manager already logs each hook with its arguments.
 - `check_configuration` is synchronous and cheap, it runs at every VTherm cycle. It returns the problems to report as `QuirkIssue(key, placeholders=...)`. A problem found at runtime, for example in a state listener, is kept by the quirk and returned by the next `check_configuration`. Call `self.request_issue_sync()` so that the repairs are updated at once, without waiting for the next cycle.
 
 `quirk_id`, `underlying_types` and `vtherm_scopes` decide when the quirk is offered: the VTherm must have an underlying of one of the types and one of the scopes. `over_climate_valve` is an `over_climate` with the direct valve control (`auto_regulation_valve`).
@@ -92,7 +106,6 @@ A quirk that only follows the power requested from a switch and logs it:
 
 from __future__ import annotations
 
-import logging
 from typing import ClassVar
 
 from homeassistant.helpers.device_registry import DeviceEntry
@@ -100,8 +113,6 @@ from vtherm_api import UnderlyingPowerCommand
 
 from ..const import SCOPE_OVER_SWITCH, UNDERLYING_SWITCH
 from .base import BaseQuirk, EntityRole
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class AcmeRelayQuirk(BaseQuirk):
@@ -120,7 +131,7 @@ class AcmeRelayQuirk(BaseQuirk):
 
     # Only the hook the quirk needs.
     async def async_on_underlying_power(self, command: UnderlyingPowerCommand) -> None:
-        _LOGGER.debug("%s requested %.0f%%", self.underlying_entity_id, command.requested_on_percent * 100)
+        self.log.debug("requested %.0f%%", command.requested_on_percent * 100)
 ```
 
 Save it as `quirks/acme_relay.py`. It is discovered automatically, there is nothing to register. Keep its device identifiers, option keys and limits as constants at the top of this module.
@@ -140,7 +151,7 @@ Tests use `pytest-homeassistant-custom-component`. A pull request for a quirk in
 - for every hook, the exact service calls and values, in order, with the time advanced by `async_fire_time_changed` when the quirk waits;
 - the cases that go wrong: unavailable entity, missing attribute, cancellation in the middle of a treatment, an error from a service call;
 - `check_configuration`: each issue appears and disappears;
-- `async_start` and `async_stop`.
+- `async_startup`, and `async_stop` in the middle of a treatment.
 
 The registry tests (`tests/test_registry.py`) already check that identifiers are unique and that every quirk declares its roles and options. Look at `tests/quirks/test_sonoff_trv_zbt.py` and `tests/common.py` (simulated device, fake runtime) as a model.
 

@@ -13,21 +13,40 @@ defines it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import asyncio
+import logging
+from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import voluptuous as vol
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import (
+    EventStateChangedData,
+    async_call_later,
+    async_track_state_change_event,
+)
+from homeassistant.helpers.start import async_at_started
 
-from ..const import VT_CONF_UNDERLYING_LIST
+from ..const import STATE_UNAVAILABLE, STATE_UNKNOWN, VT_CONF_UNDERLYING_LIST
 
 if TYPE_CHECKING:
     from homeassistant.helpers.device_registry import DeviceEntry
     from vtherm_api import InterfaceThermostatRuntime
+
+# Public API for the quirks. Import the names explicitly:
+# ``from .base import BaseQuirk, QuirkIssue, to_float``.
+__all__ = [
+    "BaseQuirk",
+    "EntityRole",
+    "QuirkIssue",
+    "clamp_temperature",
+    "get_device_of_entity",
+    "to_float",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +83,28 @@ def get_device_of_entity(hass: HomeAssistant, entity_id: str) -> DeviceEntry | N
     return dr.async_get(hass).async_get(entry.device_id)
 
 
+def to_float(value: Any) -> float | None:
+    """Convert a state or an attribute to a float, None when impossible."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def clamp_temperature(
+    value: float, minimum: float, maximum: float, digits: int = 1
+) -> float:
+    """Keep a temperature in the range a device accepts, rounded to its precision."""
+    return round(max(minimum, min(maximum, value)), digits)
+
+
+class _UnderlyingLogger(logging.LoggerAdapter):
+    """Prefixes every message with the underlying entity id."""
+
+    def process(self, msg: Any, kwargs: Any) -> tuple[Any, Any]:
+        return f"{self.extra['underlying']} - {msg}", kwargs
+
+
 class BaseQuirk:
     """A behavior fix for one underlying model.
 
@@ -76,7 +117,13 @@ class BaseQuirk:
         async def async_on_underlying_power(self, command: UnderlyingPowerCommand) -> None: ...
 
     Hooks must return quickly (the core cuts them after 10 seconds): a long
-    treatment runs in a background task owned by the quirk.
+    treatment runs in a background task started with :meth:`spawn`.
+
+    The default :meth:`async_start` calls :meth:`on_underlying_state` on each
+    state change of the underlying (only when the quirk defines it) and
+    :meth:`async_startup` once Home Assistant is running. The default
+    :meth:`async_stop` undoes that and cancels the tasks started with
+    :meth:`spawn`.
     """
 
     quirk_id: ClassVar[str]
@@ -136,6 +183,13 @@ class BaseQuirk:
         self.options: dict[str, Any] = dict(options)
         self.issue_sync_callback: Callable[[], None] | None = None
         """Set by the manager: asks it to read ``check_configuration`` again."""
+        self.log = _UnderlyingLogger(
+            logging.getLogger(type(self).__module__),
+            {"underlying": underlying_entity_id},
+        )
+        self._started = False
+        self._unsubs: list[Callable[[], None]] = []
+        self._tasks: set[asyncio.Task] = set()
 
     @property
     def is_configured(self) -> bool:
@@ -155,12 +209,57 @@ class BaseQuirk:
         except ValueError:
             return None
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     async def async_start(self) -> None:
-        """Put the device back in a clean state at startup and start listening."""
+        """Listen to the underlying, then run :meth:`async_startup`."""
+        if self._started:
+            return
+        self._started = True
+        if type(self).on_underlying_state is not BaseQuirk.on_underlying_state:
+            self._unsubs.append(
+                async_track_state_change_event(
+                    self.hass, [self.underlying_entity_id], self._on_state_event
+                )
+            )
+        if self.hass.is_running:
+            await self.async_startup()
+        else:
+            # Its cancel function is safe to call after the callback ran.
+            self._unsubs.append(async_at_started(self.hass, self._async_at_started))
+
+    async def _async_at_started(self, _hass: HomeAssistant) -> None:
+        await self.async_startup()
+
+    async def async_startup(self) -> None:
+        """Put the device back in a clean state, once Home Assistant is running."""
 
     async def async_stop(self) -> None:
-        """Cancel the running work and restore the device."""
+        """Stop listening and cancel the tasks started with :meth:`spawn`."""
+        self._started = False
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+        tasks = list(self._tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.wait(tasks)
 
+    @callback
+    def _on_state_event(self, event: Event[EventStateChangedData]) -> None:
+        new_state = event.data["new_state"]
+        if new_state is not None:
+            self.on_underlying_state(event.data["old_state"], new_state)
+
+    @callback
+    def on_underlying_state(self, old_state: State | None, new_state: State) -> None:
+        """Called on each state change of the underlying, when the quirk defines it."""
+
+    # ------------------------------------------------------------------
+    # Repairs
+    # ------------------------------------------------------------------
     def check_configuration(self) -> list[QuirkIssue]:
         """Return the configuration problems to report. Must be cheap and synchronous.
 
@@ -174,3 +273,53 @@ class BaseQuirk:
         """Ask the manager to read ``check_configuration`` again and update the repairs."""
         if self.issue_sync_callback is not None:
             self.issue_sync_callback()
+
+    # ------------------------------------------------------------------
+    # Helpers for the quirks
+    # ------------------------------------------------------------------
+    @property
+    def underlying_state(self) -> State | None:
+        """Current state of the underlying."""
+        return self.hass.states.get(self.underlying_entity_id)
+
+    @property
+    def underlying_available(self) -> bool:
+        """True when the underlying has a state other than unavailable or unknown."""
+        state = self.underlying_state
+        return state is not None and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+
+    def spawn(self, coro: Coroutine[Any, Any, Any], name: str) -> asyncio.Task:
+        """Run a background job, cancelled by :meth:`async_stop`."""
+        task = self.hass.async_create_background_task(
+            coro, f"vtherm_quirks {name} {self.underlying_entity_id}"
+        )
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
+    async def call_service(
+        self, domain: str, service: str, data: dict[str, Any], *, blocking: bool = True
+    ) -> bool:
+        """Call a service. A failure is logged and returns False, it never raises."""
+        self.log.debug("calling %s.%s %s (blocking=%s)", domain, service, data, blocking)
+        try:
+            await self.hass.services.async_call(domain, service, data, blocking=blocking)
+        except Exception as err:  # noqa: BLE001 - a quirk must never break the core
+            self.log.warning("%s.%s %s failed: %s", domain, service, data, err)
+            return False
+        return True
+
+    async def async_sleep(self, seconds: float) -> None:
+        """Sleep on a Home Assistant timer: cancellable, and driven by the test clock."""
+        future: asyncio.Future[None] = self.hass.loop.create_future()
+
+        @callback
+        def _done(_now: Any) -> None:
+            if not future.done():
+                future.set_result(None)
+
+        cancel = async_call_later(self.hass, seconds, _done)
+        try:
+            await future
+        finally:
+            cancel()
