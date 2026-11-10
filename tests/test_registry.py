@@ -23,7 +23,7 @@ from custom_components.vtherm_quirks.quirks import (
 from custom_components.vtherm_quirks.quirks.moes_trv601 import MoesTrv601Quirk
 from custom_components.vtherm_quirks.quirks.sonoff_trv_zbt import SonoffTrvZbtQuirk
 
-from .common import add_device, vtherm_entry_infos
+from .common import add_device, device_of, vtherm_entry_infos
 
 
 def test_registry_has_no_duplicate_id() -> None:
@@ -95,10 +95,7 @@ def test_compatible_quirks() -> None:
 @pytest.mark.parametrize("kind", ["z2m", "zha"])
 async def test_detect_quirk(hass, kind: str) -> None:
     """The quirk of a device is detected when it is compatible with the VTherm."""
-    from homeassistant.helpers import device_registry as dr
-
-    add_device(hass, kind)
-    device = next(iter(dr.async_get(hass).devices.values()))
+    device = device_of(hass, add_device(hass, kind))
     assert detect_quirk(device, vtherm_entry_infos()) is SonoffTrvZbtQuirk
     assert detect_quirk(device, vtherm_entry_infos(auto_regulation_mode="auto_regulation_none")) is None
     assert detect_quirk(None, vtherm_entry_infos()) is None
@@ -215,16 +212,13 @@ async def test_detect_quirk_warns_when_several_match(
     hass, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The first quirk wins and a warning names every matching quirk."""
-    from homeassistant.helpers import device_registry as dr
-
     from custom_components.vtherm_quirks import quirks as quirks_module
 
     class OtherQuirk(SonoffTrvZbtQuirk):
         quirk_id = "other"
 
     monkeypatch.setattr(quirks_module, "QUIRKS", (SonoffTrvZbtQuirk, OtherQuirk))
-    add_device(hass, "z2m")
-    device = next(iter(dr.async_get(hass).devices.values()))
+    device = device_of(hass, add_device(hass, "z2m"))
     with caplog.at_level(logging.WARNING):
         assert detect_quirk(device, vtherm_entry_infos()) is SonoffTrvZbtQuirk
     assert any("sonoff_trv_zbt" in r.getMessage() and "other" in r.getMessage() for r in caplog.records)

@@ -270,3 +270,11 @@ def add_device(
             translation_key="open_window",
         )
     return found
+
+
+def device_of(hass: HomeAssistant, entities: dict[str, str]) -> dr.DeviceEntry:
+    """Return the device registered by ``add_device``, found from its climate entity."""
+    device_id = er.async_get(hass).async_get(entities["climate"]).device_id
+    device = dr.async_get(hass).async_get(device_id)
+    assert device is not None
+    return device

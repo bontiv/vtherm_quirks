@@ -19,6 +19,7 @@ from ..common import (
     TrvSim,
     add_device,
     advance,
+    device_of,
     flush,
     vtherm_entry_infos,
 )
@@ -64,8 +65,7 @@ def valve_command(
 @pytest.mark.parametrize("kind", ["z2m", "zha"])
 async def test_match_device(hass: HomeAssistant, kind: str) -> None:
     """A TRV-ZBT is recognized under Zigbee2MQTT and ZHA."""
-    add_device(hass, kind)
-    device = next(iter(dr.async_get(hass).devices.values()))
+    device = device_of(hass, add_device(hass, kind))
     assert SonoffTrvZbtQuirk.match_device(device)
 
 
@@ -92,7 +92,7 @@ async def test_match_device_rejects_other_models(hass: HomeAssistant) -> None:
 async def test_discover_entities(hass: HomeAssistant, kind: str) -> None:
     """The entities are found by role, disabled ZHA entities included."""
     expected = add_device(hass, kind)
-    device = next(iter(dr.async_get(hass).devices.values()))
+    device = device_of(hass, expected)
     found = SonoffTrvZbtQuirk.discover_entities(hass, device)
     for role in (
         "heating_position",

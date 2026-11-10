@@ -142,6 +142,8 @@ def power_command(underlying: str, climate: str | None = None) -> UnderlyingPowe
         cycle_duration_sec=60,
         start_offset_sec=None,
         is_repeat=False,
+        cycle_start_monotonic=None,
+        monotonic=0.0,
     )
 
 
