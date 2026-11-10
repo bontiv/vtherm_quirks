@@ -125,17 +125,13 @@ class BaseQuirk:
         async def async_before_valve_write(
             self, request: ValveWriteRequest
         ) -> ValveWriteDecision | None: ...
-        def to_underlying_hvac_mode(self, climate_entity_id, hvac_mode) -> str | None: ...
-        def from_underlying_hvac_mode(self, climate_entity_id, underlying_hvac_mode) -> str | None: ...
         def adjust_calibration_offset(self, request: CalibrationOffsetRequest) -> float | None: ...
 
     ``async_before_valve_write`` is awaited before the core writes the valve:
     it returns a decision (a new opening degree, or ``handled=True`` when the
     quirk writes the valve itself, with ``settle_sec`` for a long sequence) or
-    ``None`` to leave the value of the core. The three other methods are plain
-    functions without input or output, called from properties: ``None`` means
-    no translation or no adjustment, ``UNSUPPORTED_HVAC_MODE`` marks a device
-    mode with no VTherm equivalent.
+    ``None`` to leave the value of the core. ``adjust_calibration_offset`` is a plain
+    function called from a property: ``None`` means no adjustment.
 
     The default :meth:`async_start` calls :meth:`on_underlying_state` on each
     state change of the underlying (only when the quirk defines it) and

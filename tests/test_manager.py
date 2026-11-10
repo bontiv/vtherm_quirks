@@ -9,11 +9,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant.common import MockConfigEntry
 from vtherm_api import (
-    UNSUPPORTED_HVAC_MODE,
     CalibrationOffsetRequest,
     InterfaceCalibrationOffsetModifier,
     InterfaceFeatureManager,
-    InterfaceUnderlyingHvacModeMapper,
     InterfaceValveWriteHook,
     ValveWriteDecision,
     ValveWriteRequest,
@@ -97,7 +95,7 @@ class PowerOnlyQuirk(BaseQuirk):
 
 
 class ContractQuirk(BaseQuirk):
-    """Defines the four optional contracts of vtherm_api 0.10.0 and records the calls."""
+    """Defines the two optional contracts of vtherm_api 0.10.0 and records the calls."""
 
     quirk_id: ClassVar[str] = "fake_contracts"
     title: ClassVar[str] = "Fake contracts"
@@ -116,14 +114,6 @@ class ContractQuirk(BaseQuirk):
         self.calls.append(("write", request))
         return ValveWriteDecision(opening_degree=7, handled=True, settle_sec=12.0)
 
-    def to_underlying_hvac_mode(self, climate_entity_id: str, hvac_mode: str) -> str | None:
-        self.calls.append(("to", climate_entity_id, hvac_mode))
-        return "auto" if hvac_mode == "heat" else None
-
-    def from_underlying_hvac_mode(self, climate_entity_id: str, underlying_hvac_mode: str) -> str | None:
-        self.calls.append(("from", climate_entity_id, underlying_hvac_mode))
-        return {"auto": "heat", "heat": UNSUPPORTED_HVAC_MODE}.get(underlying_hvac_mode)
-
     def adjust_calibration_offset(self, request: CalibrationOffsetRequest) -> float | None:
         self.calls.append(("offset", request))
         return -request.offset
@@ -135,12 +125,6 @@ class BoomContractQuirk(ContractQuirk):
     quirk_id: ClassVar[str] = "fake_contracts_boom"
 
     async def async_before_valve_write(self, request: ValveWriteRequest) -> ValveWriteDecision | None:
-        raise RuntimeError("boom")
-
-    def to_underlying_hvac_mode(self, climate_entity_id: str, hvac_mode: str) -> str | None:
-        raise RuntimeError("boom")
-
-    def from_underlying_hvac_mode(self, climate_entity_id: str, underlying_hvac_mode: str) -> str | None:
         raise RuntimeError("boom")
 
     def adjust_calibration_offset(self, request: CalibrationOffsetRequest) -> float | None:
@@ -412,8 +396,6 @@ async def test_quirk_can_request_an_issue_sync(hass: HomeAssistant) -> None:
 # ---------------------------------------------------------------------------
 CONTRACT_METHODS = (
     "async_before_valve_write",
-    "to_underlying_hvac_mode",
-    "from_underlying_hvac_mode",
     "adjust_calibration_offset",
 )
 
@@ -450,7 +432,6 @@ def offset_request(climate: str, offset: float = 1.5) -> CalibrationOffsetReques
 async def test_manager_satisfies_the_optional_contracts(hass: HomeAssistant) -> None:
     manager, _, _ = await make_manager(hass, {A: conf("fake_contracts")})
     assert isinstance(manager, InterfaceValveWriteHook)
-    assert isinstance(manager, InterfaceUnderlyingHvacModeMapper)
     assert isinstance(manager, InterfaceCalibrationOffsetModifier)
 
 
@@ -463,20 +444,11 @@ async def test_contracts_reach_only_the_quirk_of_the_climate(hass: HomeAssistant
     assert await manager.async_before_valve_write(request) == ValveWriteDecision(
         opening_degree=7, handled=True, settle_sec=12.0
     )
-    assert manager.to_underlying_hvac_mode(B, "heat") == "auto"
-    assert manager.to_underlying_hvac_mode(B, "cool") is None
-    assert manager.from_underlying_hvac_mode(B, "auto") == "heat"
-    assert manager.from_underlying_hvac_mode(B, "heat") == UNSUPPORTED_HVAC_MODE
     offset = offset_request(A)
     assert manager.adjust_calibration_offset(offset) == -1.5
 
     assert quirk_a.calls == [("write", request), ("offset", offset)]
-    assert quirk_b.calls == [
-        ("to", B, "heat"),
-        ("to", B, "cool"),
-        ("from", B, "auto"),
-        ("from", B, "heat"),
-    ]
+    assert quirk_b.calls == []
 
 
 async def test_contracts_without_quirk_return_none(hass: HomeAssistant) -> None:
@@ -484,8 +456,6 @@ async def test_contracts_without_quirk_return_none(hass: HomeAssistant) -> None:
     manager, _, _ = await make_manager(hass, {A: conf("fake_contracts"), B: conf("fake_contracts", main=None)})
     for climate in ("climate.unknown", B):
         assert await manager.async_before_valve_write(write_request(climate)) is None
-        assert manager.to_underlying_hvac_mode(climate, "heat") is None
-        assert manager.from_underlying_hvac_mode(climate, "auto") is None
         assert manager.adjust_calibration_offset(offset_request(climate)) is None
     assert manager.quirks[B].calls == []
 
@@ -497,8 +467,6 @@ async def test_contracts_ignore_a_class_without_the_method(hass: HomeAssistant) 
     for name in CONTRACT_METHODS:
         assert not hasattr(type(quirk), name)
     assert await manager.async_before_valve_write(write_request(A)) is None
-    assert manager.to_underlying_hvac_mode(A, "heat") is None
-    assert manager.from_underlying_hvac_mode(A, "auto") is None
     assert manager.adjust_calibration_offset(offset_request(A)) is None
     assert quirk.calls == []
 
@@ -508,8 +476,6 @@ async def test_a_failing_contract_method_is_logged_and_gives_none(
 ) -> None:
     manager, _, _ = await make_manager(hass, {A: conf("fake_contracts_boom")})
     assert await manager.async_before_valve_write(write_request(A)) is None
-    assert manager.to_underlying_hvac_mode(A, "heat") is None
-    assert manager.from_underlying_hvac_mode(A, "auto") is None
     assert manager.adjust_calibration_offset(offset_request(A)) is None
     for name in CONTRACT_METHODS:
         assert f"fake_contracts_boom failed in {name}" in caplog.text

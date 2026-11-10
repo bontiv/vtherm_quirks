@@ -92,7 +92,7 @@ class QuirksManager:
     """The only feature manager of the plugin, one per VTherm.
 
     It implements the hooks of ``vtherm_api`` and the optional contracts of the
-    core (valve write, hvac mode translation, calibration offset) and forwards
+    core (valve write, calibration offset) and forwards
     each call to the quirk bound to the underlying concerned, only when the
     quirk class defines the method. A failing quirk is logged with its id and
     never disturbs the others nor the core.
@@ -328,25 +328,6 @@ class QuirksManager:
             decision,
         )
         return decision
-
-    def to_underlying_hvac_mode(
-        self, climate_entity_id: str, hvac_mode: str
-    ) -> str | None:
-        """Mode to send to the device for a VTherm mode, None for no translation."""
-        return self._call_sync(
-            "to_underlying_hvac_mode", climate_entity_id, climate_entity_id, hvac_mode
-        )
-
-    def from_underlying_hvac_mode(
-        self, climate_entity_id: str, underlying_hvac_mode: str
-    ) -> str | None:
-        """VTherm mode of a device mode, None for no translation."""
-        return self._call_sync(
-            "from_underlying_hvac_mode",
-            climate_entity_id,
-            climate_entity_id,
-            underlying_hvac_mode,
-        )
 
     def adjust_calibration_offset(self, request: CalibrationOffsetRequest) -> float | None:
         """Offset to use for the climate, None to keep the proposed one."""

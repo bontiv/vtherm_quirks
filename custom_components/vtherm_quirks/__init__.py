@@ -33,8 +33,6 @@ _REQUIRED_API_NAMES = (
     "UNDERLYING_HOOK_TIMEOUT_SEC",
     "InterfaceValveWriteHook",
     "ValveWriteDecision",
-    "InterfaceUnderlyingHvacModeMapper",
-    "UNSUPPORTED_HVAC_MODE",
     "InterfaceCalibrationOffsetModifier",
 )
 
