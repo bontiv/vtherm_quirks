@@ -23,7 +23,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Names the core needs from vtherm_api to call the hooks (vtherm_api >= 0.9.0).
+# Names the core needs from vtherm_api to call the hooks (vtherm_api >= 0.10.0).
 _REQUIRED_API_NAMES = (
     "InterfaceUnderlyingHvacModeHook",
     "InterfaceValveCommandHook",
@@ -31,6 +31,11 @@ _REQUIRED_API_NAMES = (
     "ValveCommand",
     "ValveCommandCause",
     "UNDERLYING_HOOK_TIMEOUT_SEC",
+    "InterfaceValveWriteHook",
+    "ValveWriteDecision",
+    "InterfaceUnderlyingHvacModeMapper",
+    "UNSUPPORTED_HVAC_MODE",
+    "InterfaceCalibrationOffsetModifier",
 )
 
 
@@ -128,7 +133,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             translation_key="hooks_unavailable",
         )
         _LOGGER.error(
-            "vtherm_api does not expose the underlying hooks (0.9.0 or later is required)"
+            "vtherm_api does not expose the underlying hooks (0.10.0 or later is required)"
         )
         return False
     ir.async_delete_issue(hass, DOMAIN, "hooks_unavailable")

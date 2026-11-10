@@ -167,7 +167,7 @@
   "issues": {
     "hooks_unavailable": {
       "title": "Versatile Thermostat Quirks ne peut pas démarrer",
-      "description": "Le vtherm_api installé ne fournit pas les hooks des sous-jacents. Mettez à jour Versatile Thermostat (vtherm_api 0.9.0 ou plus est requis), puis redémarrez Home Assistant."
+      "description": "Le vtherm_api installé ne fournit pas les hooks des sous-jacents. Mettez à jour Versatile Thermostat (vtherm_api 0.10.0 ou plus est requis), puis redémarrez Home Assistant."
     },
     "unknown_quirk": {
       "title": "Quirk inconnu",
