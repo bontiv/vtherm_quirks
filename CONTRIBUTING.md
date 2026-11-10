@@ -27,7 +27,7 @@ custom_components/vtherm_quirks/
 Modules starting with `_` hold code shared by several quirks: the registry does not look for quirks in them.
 
 - The **registry** (`quirks/__init__.py`) discovers the quirk classes when the package is imported: it imports every module of `quirks/` except `base` and the ones starting with `_`, and keeps the `BaseQuirk` subclasses defined there that have a `quirk_id`. Adding a quirk means adding a module, there is no list to edit. A module that fails to import is logged and skipped, and a duplicate `quirk_id` is logged and ignored.
-- The **`QuirksManager`** is the only feature manager of the plugin, one per VTherm. It implements the three hooks and forwards each call to the quirk instance bound to the underlying concerned. It only forwards a hook to a quirk whose class defines it.
+- The **`QuirksManager`** is the only feature manager of the plugin, one per VTherm. It implements the three hooks and the optional contracts of the core (see below) and forwards each call to the quirk instance bound to the underlying concerned. It only forwards a call to a quirk whose class defines the method.
 - A **quirk instance** exists for each configured underlying. It keeps its own state (tasks, locks) and only implements the hooks it needs.
 
 The plugin never imports the private modules of the VTherm core. The VTherm configuration is read from `runtime.entry_infos`, with the keys declared in `const.py` (prefix `VT_CONF_`).
@@ -36,7 +36,7 @@ The plugin never imports the private modules of the VTherm core. The VTherm conf
 
 ## The hooks
 
-They come from `vtherm_api` (0.9.0 or later). They are notifications: none of them modifies or cancels the command of the core.
+They come from `vtherm_api` (0.10.0 or later). The three hooks are notifications: none of them modifies or cancels the command of the core.
 
 ```python
 async def async_before_underlying_hvac_mode(
@@ -56,6 +56,23 @@ Rules every quirk must respect:
 - Anything that must be done before the core command (for example before a device goes OFF) is written inside the hook, with `blocking=True`, because the core goes on when the hook returns.
 - Restore what you changed in a `finally` block, so that a cancellation leaves the device in a clean state.
 - Do not catch `asyncio.CancelledError`. Other exceptions that escape a hook are logged by the manager with the `quirk_id`.
+
+## The optional contracts
+
+`vtherm_api` 0.10.0 adds three contracts that, unlike the hooks, change what the core does. A quirk defines only the methods it needs, and the manager forwards a call to the quirk of the climate concerned (`climate_entity_id`) only when its class defines the method. Without a quirk or without the method, the manager answers `None`, which leaves the core unchanged. An exception is logged with the `quirk_id` and also gives `None`.
+
+```python
+async def async_before_valve_write(self, request: ValveWriteRequest) -> ValveWriteDecision | None: ...
+
+def to_underlying_hvac_mode(self, climate_entity_id: str, hvac_mode: str) -> str | None: ...
+def from_underlying_hvac_mode(self, climate_entity_id: str, underlying_hvac_mode: str) -> str | None: ...
+
+def adjust_calibration_offset(self, request: CalibrationOffsetRequest) -> float | None: ...
+```
+
+- `async_before_valve_write` is awaited by the core before it writes the opening degree of a valve regulation underlying. Return `ValveWriteDecision(opening_degree=...)` to change the value, `ValveWriteDecision(handled=True, opening_degree=<final value>, settle_sec=...)` when the quirk writes the valve itself (the core then writes nothing and does not repair the valve for `settle_sec` seconds), or `None` to leave the value. It has the same time limit as the hooks: a long sequence runs in a task started with `spawn`, and `settle_sec` announces its duration. `async_after_valve_command` is still called with the final value, `ValveCommand.written_by_plugin` is true when the quirk wrote the valve.
+- `to_underlying_hvac_mode` and `from_underlying_hvac_mode` translate the hvac mode between VTherm and the device. They are plain functions without input or output, called from properties and at each state change. Return `None` for no translation. `off` is never translated. `from_underlying_hvac_mode` returns `UNSUPPORTED_HVAC_MODE` for a device mode with no VTherm equivalent. The translation must be reversible on the modes it touches.
+- `adjust_calibration_offset` is a plain function. It receives the offset computed by the core and returns the one to write, or `None` to keep it.
 
 ## The `BaseQuirk` contract
 
