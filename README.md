@@ -1,5 +1,8 @@
 <p align="center"><img src="custom_components/vtherm_quirks/brand/logo@2x.png" alt="VTherm Quirks" width="400"></p>
 
+> [!CAUTION]
+> This plugin require Versatile Thermostat 10.6.5.beta2 or above
+
 # Versatile Thermostat Quirks
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
