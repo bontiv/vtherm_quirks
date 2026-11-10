@@ -47,8 +47,8 @@ class QuirkIssue:
     """A configuration problem reported by a quirk.
 
     ``key`` is the translation key of the repair issue (``issues`` section of
-    strings.json). The manager adds the ``name``, ``underlying`` and ``quirk``
-    placeholders.
+    translations/en.json). The manager adds the ``name``, ``underlying`` and
+    ``quirk`` placeholders.
     """
 
     key: str

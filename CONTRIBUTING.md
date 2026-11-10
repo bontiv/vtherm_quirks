@@ -127,7 +127,7 @@ Save it as `quirks/acme_relay.py`. It is discovered automatically, there is noth
 
 For a quirk with `entity_roles` or `options_schema` of its own, also add:
 
-- the labels of the role keys and of the option keys under `config.step.entities.data`, `config.step.options.data` and the same keys under `options.step` in `strings.json`, and in `translations/en.json`, `fr.json` and `de.json`;
+- the labels of the role keys and of the option keys under `config.step.entities.data`, `config.step.options.data` and the same keys under `options.step` in `translations/en.json`, `fr.json` and `de.json`;
 - the label of the quirk under `selector.quirk.options.<quirk_id>`;
 - the translations of every issue key your `check_configuration` can return, under `issues`, with the placeholders `name`, `underlying`, `quirk` and the ones you add.
 
