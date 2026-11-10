@@ -2,7 +2,10 @@ name: Release
 
 # Runs when a tag looking like "v<major>.<minor>.<patch>[...]" is pushed.
 # The GitHub filter is only a coarse pre-filter: the "check" job validates the
-# tag name strictly against Semantic Versioning before anything is changed.
+# tag name before anything is changed. It accepts Semantic Versioning
+# ("v0.1.0", "v0.1.0-beta.1") and the PEP 440 forms on a <major>.<minor>.<patch>
+# core ("v0.1.0.alpha1", "v0.1.0rc1", "v0.1.0.dev3"), which are the versions
+# Home Assistant accepts in manifest.json (AwesomeVersion SEMVER and PEP440).
 #
 # No release loop: when manifest.json has to be fixed, the bump commit and the
 # moved tag are pushed with GITHUB_TOKEN, and pushes made with GITHUB_TOKEN never
@@ -32,25 +35,33 @@ jobs:
       version: ${{ steps.semver.outputs.version }}
       prerelease: ${{ steps.semver.outputs.prerelease }}
     steps:
-      - name: Validate semantic version
+      - name: Validate version
         id: semver
         env:
           TAG: ${{ github.ref_name }}
         run: |
           num='(0|[1-9][0-9]*)'
+          core="v${num}\.${num}\.${num}"
+          # Semantic Versioning: groups 4 = pre-release, 6 = build metadata.
           ident='[0-9A-Za-z-]+'
-          re="^v${num}\.${num}\.${num}(-${ident}(\.${ident})*)?(\+${ident}(\.${ident})*)?$"
-          if [[ "$TAG" =~ $re ]]; then
-            echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-            if [ -n "${BASH_REMATCH[4]}" ]; then
-              echo "prerelease=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            fi
-            echo "Tag $TAG is a valid semantic version."
+          semver_re="^${core}(-${ident}(\.${ident})*)?(\+${ident}(\.${ident})*)?$"
+          # PEP 440 as AwesomeVersion reads it: groups 4 = pre-release,
+          # 7 = post-release, 10 = development release, 13 = local version.
+          pep440_re="^${core}([-_.]?(alpha|beta|c|pre|preview|a|b|rc)${num})?([-_.]?(post|r|rev)${num})?([-_.]?(d|dev)${num})?(\+[a-z0-9]+([-_.][a-z0-9]+)*)?$"
+
+          if [[ "$TAG" =~ $semver_re ]]; then
+            prerelease=$([ -n "${BASH_REMATCH[4]}" ] && echo true || echo false)
+            echo "Tag $TAG is a semantic version."
+          elif [[ "$TAG" =~ $pep440_re ]]; then
+            prerelease=$([ -n "${BASH_REMATCH[4]}${BASH_REMATCH[10]}" ] && echo true || echo false)
+            echo "Tag $TAG is a PEP 440 version."
           else
-            echo "::notice::Tag $TAG is not a semantic version prefixed with 'v', no release is made."
+            echo "::notice::Tag $TAG is not a version prefixed with 'v' (SemVer or PEP 440), no release is made."
+            exit 0
           fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Pre-release: $prerelease"
 
   release:
     name: Build draft release
@@ -84,17 +95,26 @@ jobs:
         run: |
           tag_object=$(git rev-parse "refs/tags/${TAG}")
           tagged_sha=$(git rev-parse "refs/tags/${TAG}^{commit}")
-          # Closest version tag strictly before the tagged commit. A stable
-          # release is compared with the previous stable one, a pre-release
-          # with any previous version.
-          version_re='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+          # Closest version tag strictly before the tagged commit (fewest
+          # commits in between). A stable release is compared with the
+          # previous stable one, a pre-release with any previous version.
+          num='(0|[1-9][0-9]*)'
+          version_re="^v${num}\.${num}\.${num}"
           if [ "$PRERELEASE" != "true" ]; then
-            version_re="${version_re}(\+.*)?$"
+            version_re="${version_re}([-_.]?(post|r|rev)${num})?(\+[0-9A-Za-z._-]+)?$"
           fi
-          previous=$(git -c versionsort.suffix=- tag --list 'v*' \
+          previous=""
+          distance=""
+          while read -r candidate; do
+            [ -n "$candidate" ] || continue
+            count=$(git rev-list --count "${candidate}..${tagged_sha}")
+            if [ -z "$distance" ] || [ "$count" -lt "$distance" ]; then
+              previous=$candidate
+              distance=$count
+            fi
+          done < <(git -c versionsort.suffix=- tag --list 'v*' \
               --merged "$tagged_sha" --no-contains "$tagged_sha" --sort=-v:refname \
-            | grep -E "$version_re" \
-            | head -n 1 || true)
+            | grep -E "$version_re" || true)
           {
             echo "tag_object=$tag_object"
             echo "tagged_sha=$tagged_sha"
