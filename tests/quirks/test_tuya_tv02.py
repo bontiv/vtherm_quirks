@@ -8,7 +8,7 @@ import pytest
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntry
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.vtherm_quirks.quirks import detect_quirk
 from custom_components.vtherm_quirks.quirks._tuya_preset import (
