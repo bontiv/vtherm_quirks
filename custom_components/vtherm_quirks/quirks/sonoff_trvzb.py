@@ -10,7 +10,8 @@ is idle). VTherm only drives the opening degree. This quirk:
 * closes the valve firmly: some TRVZB motors lose their calibration and stop
   before the seat when they close from a small opening. When the core is about
   to close an open valve, ``async_before_valve_write`` takes the write over
-  (``handled=True``): the quirk opens the valve wide for a few seconds, then
+  (``handled=True``): the quirk opens the valve to the pre-opening (10 % by default) for a few
+  seconds, then
   closes it (the "slam close" of caiusseverus/sonoff_trv_slam_close), in a
   background task, and the core writes nothing.
 """
@@ -70,9 +71,11 @@ ROLE_OPEN_WINDOW = "open_window"
 OPT_PRE_OPEN = "pre_open"
 OPT_SLAM_DELAY = "slam_delay"
 
-# 99 and not 100: the exact pair opening 100 / closing 0 can leave the TRVZB
-# idle with the valve closed (Better Thermostat issue 2762, firmware 1.4.4).
-DEFAULT_PRE_OPEN = 99
+# The slam close only runs for a close from an opening below the pre-opening.
+# Default: 10 %. The maximum is 99 and not 100: the exact pair opening 100 /
+# closing 0 can leave the TRVZB idle with the valve closed (Better Thermostat
+# issue 2762, firmware 1.4.4).
+DEFAULT_PRE_OPEN = 10
 MAX_PRE_OPEN = 99
 DEFAULT_SLAM_DELAY = 5
 MIN_SLAM_DELAY = 2
@@ -295,6 +298,11 @@ class SonoffTrvzbQuirk(BaseQuirk):
 
         Any other write is left to the core (``None``): the closing degree is
         written afterwards by :meth:`async_after_valve_command`.
+
+        The slam close only starts when the previous opening is below
+        ``pre_open`` (``previous >= pre_open`` skips it): with the default of
+        10 %, it goes through 10 % and only applies to closes from an opening
+        below 10 %.
         """
         opening = int(request.opening_degree)
         pre_open = self._pre_open
@@ -364,7 +372,7 @@ class SonoffTrvzbQuirk(BaseQuirk):
 
     # -- slam close ----------------------------------------------------
     async def _slam_close(self, pre_open: int) -> None:
-        """Open the valve wide, wait, then close it. The finally always closes."""
+        """Open the valve to the pre-opening, wait, then close it. The finally always closes."""
         opening_entity = self._entity(ROLE_OPENING_DEGREE)
         closing_entity = self._entity(ROLE_CLOSING_DEGREE)
         if opening_entity is None or closing_entity is None:

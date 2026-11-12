@@ -200,7 +200,7 @@ def test_roles_and_options() -> None:
         "opening_degree",
         "closing_degree",
     }
-    assert SonoffTrvzbQuirk.resolve_options({}) == {"pre_open": 99, "slam_delay": 5}
+    assert SonoffTrvzbQuirk.resolve_options({}) == {"pre_open": 10, "slam_delay": 5}
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +252,7 @@ async def test_recalibration_is_written_even_when_equal(hass: HomeAssistant) -> 
 async def test_recalibration_cancels_a_running_slam(hass: HomeAssistant) -> None:
     """A slam close started by the OFF is dropped without writing its target."""
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     await send(quirk, 0, ValveCommandCause.TURN_OFF, hvac_mode="off")
     assert sim.calls == [sim.opening(99), sim.closing(1)]
 
@@ -363,7 +363,7 @@ async def test_vtherm_closing_entity_still_configured(hass: HomeAssistant) -> No
 async def test_slam_decision_and_sequence(hass: HomeAssistant) -> None:
     """Open -> closed: the quirk takes the write over, the core writes nothing."""
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
 
     decision = await send(quirk, 0)
     assert decision == ValveWriteDecision(handled=True, opening_degree=0, settle_sec=5 + SETTLE_MARGIN)
@@ -378,14 +378,14 @@ async def test_slam_decision_and_sequence(hass: HomeAssistant) -> None:
 
 async def test_slam_settle_follows_the_delay(hass: HomeAssistant) -> None:
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim, slam_delay=12)
+    quirk = await started(hass, sim, pre_open=99, slam_delay=12)
     decision = await send(quirk, 0)
     assert decision.settle_sec == 12 + SETTLE_MARGIN
 
 
 async def test_slam_on_turn_off(hass: HomeAssistant) -> None:
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     decision = await send(quirk, 0, ValveCommandCause.TURN_OFF, hvac_mode="off")
     assert decision.handled
     await advance(hass, 6)
@@ -420,6 +420,25 @@ async def test_no_slam_when_previous_ge_pre_open(hass: HomeAssistant) -> None:
     assert sim.calls == [sim.closing(100)]
 
 
+async def test_default_pre_open_is_10(hass: HomeAssistant) -> None:
+    """By default the slam close goes through 10 % and only applies below that opening."""
+    schema = SonoffTrvzbQuirk.options_schema()
+    assert schema({})["pre_open"] == 10
+
+    sim = TrvzbSim(hass).setup(opening="5", closing="95")
+    quirk = await started(hass, sim)
+    decision = await send(quirk, 0)
+    assert decision is not None and decision.handled
+    assert sim.calls == [sim.opening(10), sim.closing(90)]
+    await advance(hass, 6)
+    assert sim.calls == [sim.opening(10), sim.closing(90), sim.closing(100), sim.opening(0)]
+
+    sim = TrvzbSim(hass).setup(opening="30", closing="70")
+    quirk = await started(hass, sim)
+    assert await send(quirk, 0) is None
+    assert quirk.core_writes == [0]
+
+
 async def test_no_slam_pre_open_zero(hass: HomeAssistant) -> None:
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
     quirk = await started(hass, sim, pre_open=0)
@@ -437,7 +456,7 @@ async def test_first_command_after_startup_no_slam(hass: HomeAssistant) -> None:
 
 async def test_repeated_zero_no_slam(hass: HomeAssistant) -> None:
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     await send(quirk, 0)
     await advance(hass, 6)
     sim.clear()
@@ -448,7 +467,7 @@ async def test_repeated_zero_no_slam(hass: HomeAssistant) -> None:
 async def test_floor_with_max_closing_degree(hass: HomeAssistant) -> None:
     """With max_closing_degree 90, an opening of 10 is a closed valve."""
     sim = TrvzbSim(hass).setup(opening="50", closing="50")
-    quirk = await started(hass, sim, entry_infos=trvzb_infos(max_closing_degree=90))
+    quirk = await started(hass, sim, pre_open=99, entry_infos=trvzb_infos(max_closing_degree=90))
     decision = await send(quirk, 10)
     assert decision.handled
     assert decision.opening_degree == 10
@@ -462,7 +481,7 @@ async def test_floor_with_max_closing_degree(hass: HomeAssistant) -> None:
 async def test_reopen_during_slam_cancels_it(hass: HomeAssistant) -> None:
     """A new opening drops the slam before the core writes it: nothing of the slam comes after."""
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     await send(quirk, 0)
     assert await send(quirk, 40) is None
     assert quirk.core_writes == [40]
@@ -474,7 +493,7 @@ async def test_reopen_during_slam_cancels_it(hass: HomeAssistant) -> None:
 async def test_zero_during_slam_keeps_running(hass: HomeAssistant) -> None:
     """A close sent again does not restart the slam: it is handled, with the time left."""
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     await send(quirk, 0)
     await advance(hass, 3)
     decision = await send(quirk, 0, ValveCommandCause.REPAIR)
@@ -490,7 +509,7 @@ async def test_zero_during_slam_keeps_running(hass: HomeAssistant) -> None:
 async def test_zero_during_slam_ends_on_the_new_target(hass: HomeAssistant) -> None:
     """The slam ends on the last close it received."""
     sim = TrvzbSim(hass).setup(opening="50", closing="50")
-    quirk = await started(hass, sim, entry_infos=trvzb_infos(max_closing_degree=90))
+    quirk = await started(hass, sim, pre_open=99, entry_infos=trvzb_infos(max_closing_degree=90))
     await send(quirk, 10)
     await send(quirk, 0, ValveCommandCause.TURN_OFF, hvac_mode="off")
     await advance(hass, 6)
@@ -500,7 +519,7 @@ async def test_zero_during_slam_ends_on_the_new_target(hass: HomeAssistant) -> N
 async def test_watcher_ignores_slam_writes(hass: HomeAssistant) -> None:
     """The pre-opening of the slam is not taken for an outside change."""
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     await send(quirk, 0)
     await advance(hass, 6)
     await advance(hass, RESEND_DELAY + 1)
@@ -509,7 +528,7 @@ async def test_watcher_ignores_slam_writes(hass: HomeAssistant) -> None:
 
 async def test_stop_mid_slam_writes_target(hass: HomeAssistant) -> None:
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     await send(quirk, 0)
     await quirk.async_stop()
     assert sim.calls == [sim.opening(99), sim.closing(1), sim.closing(100), sim.opening(0)]
@@ -517,7 +536,7 @@ async def test_stop_mid_slam_writes_target(hass: HomeAssistant) -> None:
 
 async def test_stop_after_slam_writes_nothing(hass: HomeAssistant) -> None:
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     await send(quirk, 0)
     await advance(hass, 6)
     sim.clear()
@@ -528,7 +547,7 @@ async def test_stop_after_slam_writes_nothing(hass: HomeAssistant) -> None:
 async def test_service_failure_still_writes_target(hass: HomeAssistant) -> None:
     sim = TrvzbSim(hass).setup(opening="30", closing="70")
     sim.fail_values = {99}
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     await send(quirk, 0)
     await advance(hass, 6)
     assert sim.calls[-2:] == [sim.closing(100), sim.opening(0)]
@@ -537,7 +556,7 @@ async def test_service_failure_still_writes_target(hass: HomeAssistant) -> None:
 async def test_unavailable_entity_no_slam(hass: HomeAssistant) -> None:
     """Without both valve entities the core writes the close, as it would without the quirk."""
     sim = TrvzbSim(hass).setup(opening="30", closing="unavailable")
-    quirk = await started(hass, sim)
+    quirk = await started(hass, sim, pre_open=99)
     assert await send(quirk, 0) is None
     await advance(hass, 6)
     assert quirk.core_writes == [0]
