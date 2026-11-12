@@ -72,7 +72,7 @@ async def test_match_device(hass: HomeAssistant, kind: str) -> None:
 async def test_match_device_rejects_other_models(hass: HomeAssistant) -> None:
     """Other Sonoff models and other manufacturers are rejected."""
     registry = dr.async_get(hass)
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from pytest_homeassistant.common import MockConfigEntry
 
     config_entry = MockConfigEntry(domain="zha")
     config_entry.add_to_hass(hass)

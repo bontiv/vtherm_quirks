@@ -151,7 +151,7 @@ For a quirk with `entity_roles` or `options_schema` of its own, also add:
 
 ## Expected tests
 
-Tests use `pytest-homeassistant-custom-component`. A pull request for a quirk includes, under `tests/quirks/test_<quirk_id>.py`:
+Tests use `pytest-homeassistant`. A pull request for a quirk includes, under `tests/quirks/test_<quirk_id>.py`:
 
 - the detection of the device (`match_device`) for each integration supported, and of models that must not match;
 - `discover_entities` on simulated devices registered in the device and entity registries;

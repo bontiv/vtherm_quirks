@@ -73,7 +73,7 @@ pip install -r requirements_test.txt
 pytest
 ```
 
-Die Tests verwenden `pytest-homeassistant-custom-component`. Die Architektur und die Anleitung zum Hinzufügen eines Quirks stehen in [CONTRIBUTING.md](CONTRIBUTING.md) (auf Englisch).
+Die Tests verwenden `pytest-homeassistant`. Die Architektur und die Anleitung zum Hinzufügen eines Quirks stehen in [CONTRIBUTING.md](CONTRIBUTING.md) (auf Englisch).
 
 ## Lizenz
 
