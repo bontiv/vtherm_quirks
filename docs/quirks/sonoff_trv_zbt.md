@@ -66,7 +66,7 @@ Add the integration **Versatile Thermostat Quirks**, choose the VTherm, and acce
 
 The restoration of step 7 also runs when the kick is cancelled at any step.
 
-Commands that arrive while a kick is running do not queue: they mark one pending kick, which starts at the end of the running one. A regulation cycle that sends the same opening again does not kick again. A repair or startup command always kicks.
+Commands that arrive while a kick is running do not queue: they mark one pending kick, which starts at the end of the running one. A regulation cycle that sends the same opening again does not kick again. A repair or startup command always kicks. The forced strokes of the valve recalibration start no kick.
 
 ## Behavior around OFF
 

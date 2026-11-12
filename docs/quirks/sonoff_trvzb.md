@@ -50,6 +50,7 @@ Add the integration **Versatile Thermostat Quirks**, choose the VTherm and accep
 ## Closing degree
 
 - After each valve command, the quirk writes `closing = 100 - opening` when the entity has another value. A startup or repair command of VTherm always writes it.
+- During the valve recalibration of VTherm, the quirk aligns the closing degree with each forced stroke: `0` for the full opening, `100` for the full closing. These writes are never skipped, and they cancel a slam close still running from the OFF that began the recalibration.
 - At startup, an unknown or wrong closing degree is set from the current opening.
 - A closing degree changed by something else is put back after 10 s. After 3 corrections in an hour the quirk stops and raises the repair `closing_degree_keeps_changing`. It starts again when the thermostat changes mode.
 

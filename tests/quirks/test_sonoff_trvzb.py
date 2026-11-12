@@ -229,6 +229,57 @@ async def test_closing_not_rewritten_when_equal(hass: HomeAssistant) -> None:
     assert sim.calls == [sim.closing(60), sim.closing(60)]
 
 
+async def test_recalibration_aligns_closing(hass: HomeAssistant) -> None:
+    """The recalibration: full opening writes closing 0, full closing writes closing 100."""
+    sim = TrvzbSim(hass).setup(opening="40", closing="60")
+    quirk = await started(hass, sim)
+
+    await send(quirk, 100, ValveCommandCause.RECALIBRATION)
+    assert sim.calls == [sim.closing(0)]
+    await send(quirk, 0, ValveCommandCause.RECALIBRATION)
+    assert sim.calls == [sim.closing(0), sim.closing(100)]
+
+
+async def test_recalibration_is_written_even_when_equal(hass: HomeAssistant) -> None:
+    """A closing degree already right is written anyway, like on startup or repair."""
+    sim = TrvzbSim(hass).setup(opening="100", closing="0")
+    quirk = await started(hass, sim)
+
+    await send(quirk, 100, ValveCommandCause.RECALIBRATION)
+    assert sim.calls == [sim.closing(0)]
+
+
+async def test_recalibration_cancels_a_running_slam(hass: HomeAssistant) -> None:
+    """A slam close started by the OFF is dropped without writing its target."""
+    sim = TrvzbSim(hass).setup(opening="30", closing="70")
+    quirk = await started(hass, sim)
+    await send(quirk, 0, ValveCommandCause.TURN_OFF, hvac_mode="off")
+    assert sim.calls == [sim.opening(99), sim.closing(1)]
+
+    await quirk.async_after_valve_command(
+        command(100, ValveCommandCause.RECALIBRATION, hvac_mode="off")
+    )
+    await flush()
+    assert sim.calls == [sim.opening(99), sim.closing(1), sim.closing(0)]
+    await advance(hass, 10)
+    assert sim.calls == [sim.opening(99), sim.closing(1), sim.closing(0)]
+
+
+async def test_watcher_accepts_the_recalibration_closing(hass: HomeAssistant) -> None:
+    """The closing written for the recalibration is not put back to the previous value."""
+    sim = TrvzbSim(hass).setup(opening="40", closing="60")
+    quirk = await started(hass, sim)
+    await send(quirk, 40)
+
+    await send(quirk, 100, ValveCommandCause.RECALIBRATION)
+    hass.states.async_set(TRVZB_CLOSING, "0")
+    await flush()
+    sim.clear()
+    await advance(hass, RESEND_DELAY + 1)
+    assert sim.calls == []
+    assert quirk._corrections == []
+
+
 async def test_startup_aligns_closing(hass: HomeAssistant) -> None:
     """At startup an unknown or wrong closing degree is set from the opening."""
     sim = TrvzbSim(hass).setup(opening="30", closing="unknown")

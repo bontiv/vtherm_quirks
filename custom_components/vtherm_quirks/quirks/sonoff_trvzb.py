@@ -35,6 +35,7 @@ from homeassistant.helpers.selector import (
 from vtherm_api import ValveWriteDecision
 
 from ..const import (
+    CAUSE_RECALIBRATION,
     CAUSE_REPAIR,
     CAUSE_STARTUP,
     SCOPE_OVER_CLIMATE_VALVE,
@@ -345,6 +346,16 @@ class SonoffTrvzbQuirk(BaseQuirk):
         self._last_opening = opening
         self._last_mode = str(command.hvac_mode)
         self._unstick_on_mode_change(self._last_mode)
+        if str(command.cause) == CAUSE_RECALIBRATION:
+            # The recalibration forces the opening to full open then full
+            # closed, and the core writes no closing degree. A slam close
+            # started by the OFF that began the recalibration must not come
+            # after this write: drop it without writing its target.
+            if self._slam_running():
+                self.log.debug("recalibration %s during the slam close, slam cancelled", opening)
+            await self._cancel_slam()
+            await self._write_closing(closing_for(opening), force=True)
+            return
         if command.written_by_plugin:
             # The slam close writes the closing degree itself.
             return

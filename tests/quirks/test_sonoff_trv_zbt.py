@@ -254,6 +254,20 @@ async def test_same_opening_does_not_kick_again(hass: HomeAssistant) -> None:
     await quirk.async_stop()
 
 
+async def test_recalibration_does_not_kick(hass: HomeAssistant) -> None:
+    """The forced strokes of the recalibration start no kick and write no idle position."""
+    sim = TrvSim(hass).setup()
+    quirk = make_quirk(hass, sim)
+    await quirk.async_start()
+    sim.clear()
+    await quirk.async_after_valve_command(valve_command(100, ValveCommandCause.RECALIBRATION))
+    await quirk.async_after_valve_command(valve_command(0, ValveCommandCause.RECALIBRATION))
+    await flush()
+    await advance(hass, 5)
+    assert sim.calls == []
+    await quirk.async_stop()
+
+
 async def test_requests_during_a_kick_are_coalesced(hass: HomeAssistant) -> None:
     """Three commands during a kick give a single extra kick."""
     sim = TrvSim(hass).setup()

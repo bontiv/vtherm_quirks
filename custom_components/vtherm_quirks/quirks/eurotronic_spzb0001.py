@@ -27,6 +27,7 @@ from homeassistant.helpers.event import (
 )
 
 from ..const import (
+    CAUSE_RECALIBRATION,
     CAUSE_REPAIR,
     CAUSE_STARTUP,
     HVAC_OFF,
@@ -181,6 +182,9 @@ class EurotronicSpzb0001Quirk(BaseQuirk):
 
     async def async_after_valve_command(self, command: ValveCommand) -> None:
         """Remember the opening and check the mode."""
+        if str(command.cause) == CAUSE_RECALIBRATION:
+            # Forced full strokes: not a regulation opening to remember.
+            return
         self._last_opening = int(command.opening_degree)
         if self._max_commanded is None or self._last_opening > self._max_commanded:
             self._max_commanded = self._last_opening
