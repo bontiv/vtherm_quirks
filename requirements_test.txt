@@ -1,5 +1,5 @@
 # Tests run against Home Assistant through pytest-homeassistant.
-# vtherm_api 0.9.0 or later is required (underlying hooks contract).
+# vtherm_api 0.10.0 or later is required (underlying hooks and before-write contracts).
 pytest-homeassistant
 pytest-timeout
-vtherm_api>=0.9.0
+vtherm_api>=0.10.0

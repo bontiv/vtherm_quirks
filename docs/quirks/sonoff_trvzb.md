@@ -11,7 +11,7 @@ The TRVZB has two valve settings:
 
 The closing degree is specific to this model. The quirk owns it: after each valve command of VTherm it writes `closing = 100 - opening`, so that the valve ends at the requested opening whatever the state of the TRV. VTherm only needs the opening degree entity.
 
-Some TRVZB motors also lose their calibration: when they close from a small opening, they stop before the seat and the radiator keeps heating (see [Better Thermostat](https://github.com/KartoffelToby/better_thermostat) and [sonoff_trv_slam_close](https://github.com/caiusseverus/sonoff_trv_slam_close)). When VTherm closes the valve from an open position, the quirk first opens it wide for a few seconds, then closes it: the **slam close**.
+Some TRVZB motors also lose their calibration: when they close from a small opening, they stop before the seat and the radiator keeps heating (see [Better Thermostat](https://github.com/KartoffelToby/better_thermostat) and [sonoff_trv_slam_close](https://github.com/caiusseverus/sonoff_trv_slam_close)). When VTherm is about to close the valve from a small opening, below the pre-opening (10 % by default), the quirk takes the write over: it opens the valve to the pre-opening for a few seconds, then closes it. This is the **slam close**. It needs a Versatile Thermostat release that calls the before-write contract of `vtherm_api` 0.10.0.
 
 ## Supported setups
 
@@ -44,26 +44,29 @@ Add the integration **Versatile Thermostat Quirks**, choose the VTherm and accep
 
 | Option | Default | Meaning |
 |---|---|---|
-| Pre-opening (`pre_open`) | 99 % | Opening of the slam close, from 0 to 99. 0 disables the slam close. |
+| Pre-opening (`pre_open`) | 10 % | Opening of the slam close, from 0 to 99. 0 disables the slam close. The slam close only applies to a close from an opening below it. |
 | Pre-opening duration (`slam_delay`) | 5 s | Time the valve stays at the pre-opening, from 2 to 60 s. |
 
 ## Closing degree
 
 - After each valve command, the quirk writes `closing = 100 - opening` when the entity has another value. A startup or repair command of VTherm always writes it.
+- During the valve recalibration of VTherm, the quirk aligns the closing degree with each forced stroke: `0` for the full opening, `100` for the full closing. These writes are never skipped, and they cancel a slam close still running from the OFF that began the recalibration.
 - At startup, an unknown or wrong closing degree is set from the current opening.
 - A closing degree changed by something else is put back after 10 s. After 3 corrections in an hour the quirk stops and raises the repair `closing_degree_keeps_changing`. It starts again when the thermostat changes mode.
 
 ## The slam close
 
-It runs when VTherm sends a closed valve (0, or the floor set by the max closing degree of VTherm) after an open one:
+It runs when VTherm is about to write a closed valve (0, or the floor set by the max closing degree of VTherm) after an open one. The quirk answers VTherm that it writes the valve itself, so VTherm writes nothing, and runs in the background:
 
 1. Write opening = pre-opening, then closing = 100 - pre-opening.
 2. Wait the pre-opening duration.
 3. Write closing = 100, then opening = 0.
 
-Step 3 also runs when the slam close is cancelled or a write fails: the valve is never left open.
+The quirk also tells VTherm how long the sequence lasts: the pre-opening duration plus 5 seconds for the writes. VTherm does not repair the valve during that time, so it does not take the pre-opening for a fault.
 
-There is no slam close when the previous opening was already at the pre-opening or more, when the valve was already closed, or at the first command after a restart. A new opening during a slam close cancels it and writes the opening of VTherm again. A close sent again during a slam close does not restart it.
+Step 3 also runs when the slam close is cancelled by a restart of the integration or when a write fails: the valve is never left open.
+
+There is no slam close, and VTherm writes the valve as usual, when the previous opening was already at the pre-opening or more (with the default of 10 %, a close from 10 % or more is left to VTherm), when the valve was already closed, when one of the two valve entities is unavailable, or at the first command after a restart. A new opening during a slam close cancels it before VTherm writes this opening. A close sent again during a slam close does not restart it: the slam close ends on the last close received.
 
 ## Migration
 

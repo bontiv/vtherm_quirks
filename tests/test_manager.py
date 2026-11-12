@@ -9,7 +9,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant.common import MockConfigEntry
 from vtherm_api import (
+    CalibrationOffsetRequest,
+    InterfaceCalibrationOffsetModifier,
     InterfaceFeatureManager,
+    InterfaceValveWriteHook,
+    ValveWriteDecision,
+    ValveWriteRequest,
     InterfaceUnderlyingHvacModeHook,
     InterfaceUnderlyingPowerHook,
     InterfaceValveCommandHook,
@@ -89,6 +94,43 @@ class PowerOnlyQuirk(BaseQuirk):
         self.calls.append(("power", command))
 
 
+class ContractQuirk(BaseQuirk):
+    """Defines the two optional contracts of vtherm_api 0.10.0 and records the calls."""
+
+    quirk_id: ClassVar[str] = "fake_contracts"
+    title: ClassVar[str] = "Fake contracts"
+    underlying_types: ClassVar[frozenset[str]] = frozenset({"climate"})
+    vtherm_scopes: ClassVar[frozenset[str]] = frozenset({"over_climate"})
+
+    @classmethod
+    def entity_roles(cls) -> list[EntityRole]:
+        return [EntityRole("main", ("sensor",))]
+
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
+        self.calls: list[tuple] = []
+
+    async def async_before_valve_write(self, request: ValveWriteRequest) -> ValveWriteDecision | None:
+        self.calls.append(("write", request))
+        return ValveWriteDecision(opening_degree=7, handled=True, settle_sec=12.0)
+
+    def adjust_calibration_offset(self, request: CalibrationOffsetRequest) -> float | None:
+        self.calls.append(("offset", request))
+        return -request.offset
+
+
+class BoomContractQuirk(ContractQuirk):
+    """Every contract method raises."""
+
+    quirk_id: ClassVar[str] = "fake_contracts_boom"
+
+    async def async_before_valve_write(self, request: ValveWriteRequest) -> ValveWriteDecision | None:
+        raise RuntimeError("boom")
+
+    def adjust_calibration_offset(self, request: CalibrationOffsetRequest) -> float | None:
+        raise RuntimeError("boom")
+
+
 class BoomQuirk(RecordingQuirk):
     """Every hook raises."""
 
@@ -110,7 +152,7 @@ def fake_quirks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         quirks_module,
         "QUIRKS",
-        (RecordingQuirk, PowerOnlyQuirk, BoomQuirk),
+        (RecordingQuirk, PowerOnlyQuirk, BoomQuirk, ContractQuirk, BoomContractQuirk),
     )
     RecordingQuirk.issues = []
 
@@ -347,3 +389,93 @@ async def test_quirk_can_request_an_issue_sync(hass: HomeAssistant) -> None:
     RecordingQuirk.issues = [QuirkIssue("open_window_enabled")]
     quirk.request_issue_sync()
     assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+# ---------------------------------------------------------------------------
+# Optional contracts of vtherm_api 0.10.0
+# ---------------------------------------------------------------------------
+CONTRACT_METHODS = (
+    "async_before_valve_write",
+    "adjust_calibration_offset",
+)
+
+
+def write_request(climate: str, opening: int = 0) -> ValveWriteRequest:
+    return ValveWriteRequest(
+        climate_entity_id=climate,
+        opening_degree_entity_id="number.o",
+        closing_degree_entity_id=None,
+        percent_open=opening,
+        opening_degree=opening,
+        requested_opening_degree=opening,
+        max_opening_degree=100,
+        hvac_mode="heat",
+        cause=ValveCommandCause.REGULATION,
+    )
+
+
+def offset_request(climate: str, offset: float = 1.5) -> CalibrationOffsetRequest:
+    return CalibrationOffsetRequest(
+        climate_entity_id=climate,
+        calibration_entity_id="number.c",
+        offset=offset,
+        requested_offset=offset,
+        current_offset=0.0,
+        local_temperature=20.0,
+        room_temperature=21.0,
+        min_offset=-9.0,
+        max_offset=9.0,
+        step=0.1,
+    )
+
+
+async def test_manager_satisfies_the_optional_contracts(hass: HomeAssistant) -> None:
+    manager, _, _ = await make_manager(hass, {A: conf("fake_contracts")})
+    assert isinstance(manager, InterfaceValveWriteHook)
+    assert isinstance(manager, InterfaceCalibrationOffsetModifier)
+
+
+async def test_contracts_reach_only_the_quirk_of_the_climate(hass: HomeAssistant) -> None:
+    """Each method is forwarded to the quirk of the climate concerned, and its answer returned."""
+    manager, _, _ = await make_manager(hass, {A: conf("fake_contracts"), B: conf("fake_contracts")})
+    quirk_a, quirk_b = manager.quirks[A], manager.quirks[B]
+
+    request = write_request(A)
+    assert await manager.async_before_valve_write(request) == ValveWriteDecision(
+        opening_degree=7, handled=True, settle_sec=12.0
+    )
+    offset = offset_request(A)
+    assert manager.adjust_calibration_offset(offset) == -1.5
+
+    assert quirk_a.calls == [("write", request), ("offset", offset)]
+    assert quirk_b.calls == []
+
+
+async def test_contracts_without_quirk_return_none(hass: HomeAssistant) -> None:
+    """An unknown climate, or an unconfigured quirk, leaves the core unchanged."""
+    manager, _, _ = await make_manager(hass, {A: conf("fake_contracts"), B: conf("fake_contracts", main=None)})
+    for climate in ("climate.unknown", B):
+        assert await manager.async_before_valve_write(write_request(climate)) is None
+        assert manager.adjust_calibration_offset(offset_request(climate)) is None
+    assert manager.quirks[B].calls == []
+
+
+async def test_contracts_ignore_a_class_without_the_method(hass: HomeAssistant) -> None:
+    """A quirk class that does not define the methods is not called."""
+    manager, _, _ = await make_manager(hass, {A: conf("fake_power")})
+    quirk = manager.quirks[A]
+    for name in CONTRACT_METHODS:
+        assert not hasattr(type(quirk), name)
+    assert await manager.async_before_valve_write(write_request(A)) is None
+    assert manager.adjust_calibration_offset(offset_request(A)) is None
+    assert quirk.calls == []
+
+
+async def test_a_failing_contract_method_is_logged_and_gives_none(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    manager, _, _ = await make_manager(hass, {A: conf("fake_contracts_boom")})
+    assert await manager.async_before_valve_write(write_request(A)) is None
+    assert manager.adjust_calibration_offset(offset_request(A)) is None
+    for name in CONTRACT_METHODS:
+        assert f"fake_contracts_boom failed in {name}" in caplog.text

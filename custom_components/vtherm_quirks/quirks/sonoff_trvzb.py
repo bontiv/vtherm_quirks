@@ -8,9 +8,12 @@ is idle). VTherm only drives the opening degree. This quirk:
   ``closing = 100 - opening`` (the value the core computes) and puts it back
   when something else changes it;
 * closes the valve firmly: some TRVZB motors lose their calibration and stop
-  before the seat when they close from a small opening. On a transition from
-  an open valve to a closed one, the quirk opens the valve wide for a few
-  seconds, then closes it (the "slam close" of caiusseverus/sonoff_trv_slam_close).
+  before the seat when they close from a small opening. When the core is about
+  to close an open valve, ``async_before_valve_write`` takes the write over
+  (``handled=True``): the quirk opens the valve to the pre-opening (10 % by default) for a few
+  seconds, then
+  closes it (the "slam close" of caiusseverus/sonoff_trv_slam_close), in a
+  background task, and the core writes nothing.
 """
 
 from __future__ import annotations
@@ -30,8 +33,10 @@ from homeassistant.helpers.selector import (
     NumberSelectorConfig,
     NumberSelectorMode,
 )
+from vtherm_api import ValveWriteDecision
 
 from ..const import (
+    CAUSE_RECALIBRATION,
     CAUSE_REPAIR,
     CAUSE_STARTUP,
     SCOPE_OVER_CLIMATE_VALVE,
@@ -46,7 +51,7 @@ from .base import BaseQuirk, EntityRole, QuirkIssue, to_float
 
 if TYPE_CHECKING:
     from homeassistant.helpers.device_registry import DeviceEntry
-    from vtherm_api import ValveCommand
+    from vtherm_api import ValveCommand, ValveWriteRequest
 
 # ---------------------------------------------------------------------------
 # Sonoff TRVZB
@@ -66,13 +71,20 @@ ROLE_OPEN_WINDOW = "open_window"
 OPT_PRE_OPEN = "pre_open"
 OPT_SLAM_DELAY = "slam_delay"
 
-# 99 and not 100: the exact pair opening 100 / closing 0 can leave the TRVZB
-# idle with the valve closed (Better Thermostat issue 2762, firmware 1.4.4).
-DEFAULT_PRE_OPEN = 99
+# The slam close only runs for a close from an opening below the pre-opening.
+# Default: 10 %. The maximum is 99 and not 100: the exact pair opening 100 /
+# closing 0 can leave the TRVZB idle with the valve closed (Better Thermostat
+# issue 2762, firmware 1.4.4).
+DEFAULT_PRE_OPEN = 10
 MAX_PRE_OPEN = 99
 DEFAULT_SLAM_DELAY = 5
 MIN_SLAM_DELAY = 2
 MAX_SLAM_DELAY = 60
+
+# Time added to the pre-opening duration when the core is told how long the
+# slam close lasts (``settle_sec``): the four writes of the sequence wait for
+# the Zigbee network, and the core must not repair the valve before the end.
+SETTLE_MARGIN = 5.0
 
 # A closing degree changed by something else is put back after this delay
 # (seconds), at most MAX_CORRECTIONS times in CORRECTION_WINDOW seconds.
@@ -193,9 +205,11 @@ class SonoffTrvzbQuirk(BaseQuirk):
         self._last_opening: int | None = None
         # hvac mode of the last command: the corrections start again when it changes.
         self._last_mode: str | None = None
-        # Slam close running, and the opening it ends on (None: end without writing).
+        # Slam close running, the opening it ends on (None: end without writing)
+        # and the time (loop clock) at which the core may repair the valve again.
         self._slam_task: asyncio.Task | None = None
         self._slam_target: int | None = None
+        self._slam_deadline = 0.0
         # Closing degree put back after an outside change.
         self._restore_task: asyncio.Task | None = None
         self._corrections: list[float] = []
@@ -276,52 +290,89 @@ class SonoffTrvzbQuirk(BaseQuirk):
     # The default async_stop cancels the slam close, whose finally writes the
     # closing pair, and the pending restore.
 
-    # -- hook ----------------------------------------------------------
-    async def async_after_valve_command(self, command: ValveCommand) -> None:
-        """Write the closing degree, or close the valve firmly on a closing edge."""
-        opening = int(command.opening_degree)
-        previous = self._last_opening
-        self._last_opening = opening
-        self._last_mode = str(command.hvac_mode)
-        self._unstick_on_mode_change(self._last_mode)
-        force = str(command.cause) in (CAUSE_STARTUP, CAUSE_REPAIR)
+    # -- hooks ---------------------------------------------------------
+    async def async_before_valve_write(
+        self, request: ValveWriteRequest
+    ) -> ValveWriteDecision | None:
+        """Take over the write of the core when it is about to close an open valve.
+
+        Any other write is left to the core (``None``): the closing degree is
+        written afterwards by :meth:`async_after_valve_command`.
+
+        The slam close only starts when the previous opening is below
+        ``pre_open`` (``previous >= pre_open`` skips it): with the default of
+        10 %, it goes through 10 % and only applies to closes from an opening
+        below 10 %.
+        """
+        opening = int(request.opening_degree)
         pre_open = self._pre_open
 
         if not self._is_closed(opening):
             if self._slam_running():
-                await self._supersede_slam(opening)
-            await self._write_closing(closing_for(opening), force=force)
-            return
+                # A new opening during a slam close: drop it before the core
+                # writes this opening, so that nothing of the slam comes after.
+                self.log.debug("opening %s during the slam close, slam cancelled", opening)
+                await self._cancel_slam()
+            return None
 
         if self._slam_running():
             # A close sent again (repair, startup, turn off): the slam ends on it.
             self._slam_target = opening
-            return
+            return self._handled(opening, max(self._slam_deadline - self._now(), SETTLE_MARGIN))
 
+        previous = self._last_opening
         if (
             previous is None
             or self._is_closed(previous)
             or previous >= pre_open
             or pre_open <= 0
         ):
-            await self._write_closing(closing_for(opening), force=force)
-            return
+            return None
 
         if not (
             self._writable(self._entity(ROLE_OPENING_DEGREE))
             and self._writable(self._entity(ROLE_CLOSING_DEGREE))
         ):
             self.log.debug("valve entities unavailable, no slam close")
-            await self._write_closing(closing_for(opening), force=force)
-            return
+            return None
 
-        self.log.debug("closing from %s: slam close through %s%%", previous, pre_open)
+        duration = self._slam_delay + SETTLE_MARGIN
+        self.log.debug("closing from %s: slam close through %s%% for %ss", previous, pre_open, duration)
         self._slam_target = opening
+        self._slam_deadline = self._now() + duration
         self._slam_task = self.spawn(self._slam_close(pre_open), "slam close")
+        return self._handled(opening, duration)
+
+    @staticmethod
+    def _handled(opening: int, settle_sec: float) -> ValveWriteDecision:
+        """The quirk writes the valve: it ends at ``opening``, the core waits ``settle_sec``."""
+        return ValveWriteDecision(handled=True, opening_degree=opening, settle_sec=settle_sec)
+
+    async def async_after_valve_command(self, command: ValveCommand) -> None:
+        """Remember the opening and write the closing degree that goes with it."""
+        opening = int(command.opening_degree)
+        self._last_opening = opening
+        self._last_mode = str(command.hvac_mode)
+        self._unstick_on_mode_change(self._last_mode)
+        if str(command.cause) == CAUSE_RECALIBRATION:
+            # The recalibration forces the opening to full open then full
+            # closed, and the core writes no closing degree. A slam close
+            # started by the OFF that began the recalibration must not come
+            # after this write: drop it without writing its target.
+            if self._slam_running():
+                self.log.debug("recalibration %s during the slam close, slam cancelled", opening)
+            await self._cancel_slam()
+            await self._write_closing(closing_for(opening), force=True)
+            return
+        if command.written_by_plugin:
+            # The slam close writes the closing degree itself.
+            return
+        force = str(command.cause) in (CAUSE_STARTUP, CAUSE_REPAIR)
+        await self._write_closing(closing_for(opening), force=force)
 
     # -- slam close ----------------------------------------------------
     async def _slam_close(self, pre_open: int) -> None:
-        """Open the valve wide, wait, then close it. The finally always closes."""
+        """Open the valve to the pre-opening, wait, then close it. The finally always closes."""
         opening_entity = self._entity(ROLE_OPENING_DEGREE)
         closing_entity = self._entity(ROLE_CLOSING_DEGREE)
         if opening_entity is None or closing_entity is None:
@@ -337,17 +388,14 @@ class SonoffTrvzbQuirk(BaseQuirk):
                 await self._set_number(closing_entity, closing_for(target))
                 await self._set_number(opening_entity, target)
 
-    async def _supersede_slam(self, opening: int) -> None:
-        """A new opening arrived during a slam close: drop it and write the opening again."""
+    async def _cancel_slam(self) -> None:
+        """Drop the slam close without writing its target, and wait for it to end."""
         self._slam_target = None
         task = self._slam_task
         if task is not None and not task.done():
             task.cancel()
             await asyncio.wait([task])
         self._slam_task = None
-        # The slam may have written its pre-opening after VTherm wrote this opening.
-        if (entity_id := self._entity(ROLE_OPENING_DEGREE)) is not None:
-            await self._set_number(entity_id, opening, blocking=False)
 
     # -- closing degree watching ---------------------------------------
     @callback

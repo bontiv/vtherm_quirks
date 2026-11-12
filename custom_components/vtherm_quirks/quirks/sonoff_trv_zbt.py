@@ -32,6 +32,7 @@ from homeassistant.helpers.selector import (
 )
 
 from ..const import (
+    CAUSE_RECALIBRATION,
     CAUSE_REGULATION,
     CAUSE_TURN_OFF,
     HVAC_OFF,
@@ -303,6 +304,9 @@ class SonoffTrvZbtQuirk(BaseQuirk):
     # -- hooks ---------------------------------------------------------
     async def async_after_valve_command(self, command: ValveCommand) -> None:
         """Sync idle_valve_position and ask for a kick."""
+        if str(command.cause) == CAUSE_RECALIBRATION:
+            # Forced full strokes of the recalibration: no kick, no idle position.
+            return
         self._latest_opening = command.opening_degree
         # The core closes the valve after it sent the OFF mode: the TRV can
         # still read heat in Home Assistant, so trust the command first.

@@ -23,9 +23,12 @@ from .repairs import ReportedIssue, async_clear_issues, async_sync_issues
 
 if TYPE_CHECKING:
     from vtherm_api import (
+        CalibrationOffsetRequest,
         InterfaceThermostatRuntime,
         UnderlyingPowerCommand,
         ValveCommand,
+        ValveWriteDecision,
+        ValveWriteRequest,
     )
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,10 +91,11 @@ def _describe_args(hook: str, args: tuple[Any, ...]) -> str:
 class QuirksManager:
     """The only feature manager of the plugin, one per VTherm.
 
-    It implements the three hooks of ``vtherm_api`` and forwards each call to
-    the quirk bound to the underlying concerned, only when the quirk class
-    defines the hook. A failing quirk is logged with its id and never disturbs
-    the others nor the core.
+    It implements the hooks of ``vtherm_api`` and the optional contracts of the
+    core (valve write, calibration offset) and forwards
+    each call to the quirk bound to the underlying concerned, only when the
+    quirk class defines the method. A failing quirk is logged with its id and
+    never disturbs the others nor the core.
     """
 
     def __init__(self, runtime: InterfaceThermostatRuntime) -> None:
@@ -297,6 +301,97 @@ class QuirksManager:
             command,
         )
 
+    # ------------------------------------------------------------------
+    # Optional contracts of vtherm_api (0.10.0)
+    # ------------------------------------------------------------------
+    async def async_before_valve_write(
+        self, request: ValveWriteRequest
+    ) -> ValveWriteDecision | None:
+        """Forward to the quirk of the climate, return its decision or None."""
+        hook = "async_before_valve_write"
+        quirk = self._quirk_for(hook, (request.climate_entity_id,))
+        if quirk is None:
+            return None
+        try:
+            decision = await getattr(quirk, hook)(request)
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception(
+                "%s - quirk %s failed in %s", self._runtime.name, quirk.quirk_id, hook
+            )
+            return None
+        _LOGGER.debug(
+            "%s - hook %s of quirk %s of %s answered %s",
+            self._runtime.name,
+            hook,
+            quirk.quirk_id,
+            quirk.underlying_entity_id,
+            decision,
+        )
+        return decision
+
+    def adjust_calibration_offset(self, request: CalibrationOffsetRequest) -> float | None:
+        """Offset to use for the climate, None to keep the proposed one."""
+        return self._call_sync(
+            "adjust_calibration_offset", request.climate_entity_id, request
+        )
+
+    def _call_sync(self, method: str, climate_entity_id: str, *args: Any) -> Any:
+        """Call a synchronous method of the quirk of a climate, None when it has none.
+
+        These methods are called from properties and at each state change of
+        the device: nothing is logged unless the quirk fails.
+        """
+        quirk = self._quirk_for(method, (climate_entity_id,), quiet=True)
+        if quirk is None:
+            return None
+        try:
+            return getattr(quirk, method)(*args)
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception(
+                "%s - quirk %s failed in %s", self._runtime.name, quirk.quirk_id, method
+            )
+            return None
+
+    def _quirk_for(
+        self, hook: str, entity_ids: tuple[str | None, ...], quiet: bool = False
+    ) -> BaseQuirk | None:
+        """The configured quirk of the first known entity, if its class defines the hook."""
+        quirk = next(
+            (self._quirks[e] for e in entity_ids if e and e in self._quirks), None
+        )
+        if quirk is None:
+            if not quiet:
+                _LOGGER.debug(
+                    "%s - hook %s dropped: no quirk for %s, quirk keys: %s",
+                    self._runtime.name,
+                    hook,
+                    entity_ids,
+                    list(self._quirks),
+                )
+            return None
+        if not quirk.is_configured:
+            if not quiet:
+                _LOGGER.debug(
+                    "%s - hook %s dropped: quirk %s of %s is not configured, missing roles: %s",
+                    self._runtime.name,
+                    hook,
+                    quirk.quirk_id,
+                    quirk.underlying_entity_id,
+                    _missing_roles(quirk),
+                )
+            return None
+        # Only forward to a quirk whose class defines the hook.
+        if getattr(type(quirk), hook, None) is None:
+            if not quiet:
+                _LOGGER.debug(
+                    "%s - hook %s dropped: quirk %s does not define it",
+                    self._runtime.name,
+                    hook,
+                    quirk.quirk_id,
+                )
+            return None
+        return quirk
+
     async def _dispatch(
         self, hook: str, entity_ids: tuple[str | None, ...], *args: Any
     ) -> None:
@@ -307,36 +402,8 @@ class QuirksManager:
             entity_ids,
             _describe_args(hook, args),
         )
-        quirk = next(
-            (self._quirks[e] for e in entity_ids if e and e in self._quirks), None
-        )
+        quirk = self._quirk_for(hook, entity_ids)
         if quirk is None:
-            _LOGGER.debug(
-                "%s - hook %s dropped: no quirk for %s, quirk keys: %s",
-                self._runtime.name,
-                hook,
-                entity_ids,
-                list(self._quirks),
-            )
-            return
-        if not quirk.is_configured:
-            _LOGGER.debug(
-                "%s - hook %s dropped: quirk %s of %s is not configured, missing roles: %s",
-                self._runtime.name,
-                hook,
-                quirk.quirk_id,
-                quirk.underlying_entity_id,
-                _missing_roles(quirk),
-            )
-            return
-        # Only forward to a quirk whose class defines the hook.
-        if getattr(type(quirk), hook, None) is None:
-            _LOGGER.debug(
-                "%s - hook %s dropped: quirk %s does not define it",
-                self._runtime.name,
-                hook,
-                quirk.quirk_id,
-            )
             return
         _LOGGER.debug(
             "%s - hook %s forwarded to quirk %s of %s",

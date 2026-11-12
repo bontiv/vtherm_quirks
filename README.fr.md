@@ -38,7 +38,7 @@ Le quirk `sonoff_trv_zbt` remplace le blueprint [Sonoff TRV-ZBT valve kick](http
 ## Prérequis
 
 - Home Assistant 2025.1 ou plus récent.
-- Une version de Versatile Thermostat qui appelle les hooks des sous-jacents, c'est-à-dire une version qui dépend de `vtherm_api` 0.9.0 ou plus. Home Assistant installe `vtherm_api` pour cette intégration.
+- Une version de Versatile Thermostat qui appelle les hooks des sous-jacents, c'est-à-dire une version qui dépend de `vtherm_api` 0.10.0 ou plus. Home Assistant installe `vtherm_api` pour cette intégration.
 
 Si le `vtherm_api` installé ne fournit pas les hooks, l'intégration ne se charge pas et un problème dans les réparations demande la mise à jour.
 

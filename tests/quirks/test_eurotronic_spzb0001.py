@@ -226,6 +226,16 @@ async def test_valve_command(hass: HomeAssistant) -> None:
     assert sim.calls == [("mode", "1"), ("position", 120)]
 
 
+async def test_recalibration_command_is_ignored(hass: HomeAssistant) -> None:
+    """The forced strokes of the recalibration write nothing and are not remembered."""
+    sim = SpiritSim(hass).setup(mode="2")
+    quirk, _ = make_quirk(hass)
+    await quirk.async_after_valve_command(command(100, ValveCommandCause.RECALIBRATION))
+    await flush()
+    assert sim.calls == []
+    assert quirk._last_opening is None
+
+
 async def test_valve_command_corrects_the_mode(hass: HomeAssistant) -> None:
     """A device found in mode 2 at a valve command is put back in 1 with the opening."""
     sim = SpiritSim(hass).setup(mode="2")

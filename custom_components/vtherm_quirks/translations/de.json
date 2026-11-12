@@ -163,7 +163,7 @@
   "issues": {
     "hooks_unavailable": {
       "title": "Versatile Thermostat Quirks kann nicht starten",
-      "description": "Das installierte vtherm_api stellt die Hooks der Unterliegenden nicht bereit. Aktualisiere Versatile Thermostat (vtherm_api 0.9.0 oder neuer ist erforderlich) und starte Home Assistant neu."
+      "description": "Das installierte vtherm_api stellt die Hooks der Unterliegenden nicht bereit. Aktualisiere Versatile Thermostat (vtherm_api 0.10.0 oder neuer ist erforderlich) und starte Home Assistant neu."
     },
     "unknown_quirk": {
       "title": "Unbekannter Quirk",
