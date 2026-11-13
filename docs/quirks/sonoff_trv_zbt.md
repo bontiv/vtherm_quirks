@@ -11,6 +11,8 @@ The quirk handles both:
 - After each valve command of VTherm, it sets `idle_valve_position` to the opening minus 1, so the valve ends at the requested opening whatever the state of the TRV. Then it forces a heating transition with a fake external temperature below the setpoint: this is the **kick**.
 - Before the TRV goes OFF, while it is still in heat, it sets `idle_valve_position` to 0. The blueprint reacted after the TRV was already `off`, so the valve stayed open and the radiator kept heating.
 - Everything runs in the plugin, in a background task with a single pending kick, instead of queued automations that race with the commands of VTherm.
+- The motor can lose its calibration and stop before the seat when it closes from a small opening. A close from an opening below the pre-opening first opens the valve to the pre-opening: this is the **slam close**.
+- The valve recalibration of VTherm only writes the heating position, which does not move the motor. The quirk drives the TRV through heating then idle so that the valve really travels.
 
 The setpoint of the TRV and the `heating_valve_position` entity are never changed by the kick, so the VTherm regulation is not disturbed.
 
@@ -53,6 +55,8 @@ Add the integration **Versatile Thermostat Quirks**, choose the VTherm, and acce
 | Temperature delta (`delta`) | 2 °C | Gap between the TRV setpoint and the fake temperature, from 1.2 to 5 °C. It must be higher than the temperature accuracy of the TRV. |
 | Kick duration (`pulse_delay`) | 5 s | Time left to the TRV to react before the temperature source is restored, from 1 to 60 s. |
 | Hot step (`hot_step`) | off | After the cold step, also send a fake temperature above the setpoint to force an idle transition. Enable it only if the valve does not reach the requested opening without it. |
+| Pre-opening (`pre_open`) | 10 % | Opening of the slam close, from 0 to 100. 0 disables the slam close. The slam close only applies to a close from an opening below it. |
+| Pre-opening duration (`slam_delay`) | 5 s | Time the valve stays at the pre-opening, from 1 to 9 s. Before OFF it can be shortened, see below. |
 
 ## The kick
 
@@ -66,11 +70,47 @@ Add the integration **Versatile Thermostat Quirks**, choose the VTherm, and acce
 
 The restoration of step 7 also runs when the kick is cancelled at any step.
 
-Commands that arrive while a kick is running do not queue: they mark one pending kick, which starts at the end of the running one. A regulation cycle that sends the same opening again does not kick again. A repair or startup command always kicks. The forced strokes of the valve recalibration start no kick.
+Commands that arrive while a kick is running do not queue: they mark one pending kick, which starts at the end of the running one. A regulation cycle that sends the same opening again does not kick again. A repair or startup command always kicks. The valve recalibration starts no kick, see below.
+
+## The slam close
+
+The slam close runs when the valve closes from an opening above 0 and below `pre_open` (10 % by default), while the TRV heats. From a larger opening, the motor travels far enough to reach the seat and nothing changes. With a maximum closing degree configured in VTherm, an opening up to 100 minus that degree counts as closed.
+
+**Before OFF.** When VTherm turns the TRV OFF, the quirk does the slam close in the hook that VTherm awaits before it sends `off`:
+
+1. Write `idle_valve_position` = 0.
+2. Write `heating_valve_position` = `pre_open`.
+3. Write the cold fake temperature and switch to the external sensor: the TRV heats and opens to the pre-opening.
+4. Wait `slam_delay`.
+5. Restore the temperature source.
+6. Return: VTherm sends `off` and the TRV moves the valve to the idle position, 0.
+
+VTherm cuts this hook after 10 seconds. The quirk ends the wait so that the hook returns within 9.5 seconds, keeping 0.5 s to restore the temperature source. With fast writes (Zigbee2MQTT), the full 9 s can be waited. With slow writes (ZHA waits for each Zigbee acknowledgement), the wait is shortened and a debug message is logged.
+
+**In the regulation.** When the regulation closes the valve while the TRV stays in heat, the quirk takes over the write of VTherm and tells VTherm how long the sequence lasts (`slam_delay` + `pulse_delay` + 5 s), so that the valve is not repaired in the meantime. The sequence runs in the background:
+
+1. Write `idle_valve_position` to the requested opening minus 1 (0 for a full close).
+2. Write `heating_valve_position` = `pre_open`.
+3. Write the cold fake temperature and switch to the external sensor: the TRV opens to the pre-opening.
+4. Wait `slam_delay`.
+5. Write `heating_valve_position` to the requested opening.
+6. Write the hot fake temperature (setpoint plus delta): the TRV goes idle and the valve goes to the idle position.
+7. Wait `pulse_delay`, then restore the temperature source. If the TRV heats again, the valve stays closed: both positions are closed.
+
+A new opening during the sequence cancels it before VTherm writes the opening, and the normal kick follows. An OFF during the sequence cancels it too. The temperature source is restored whenever the slam close ends, cancellation included.
+
+## Valve recalibration
+
+The recalibration of VTherm turns the thermostat OFF, turns the TRV on, writes the heating position to 100 then to 0, and restores the thermostat. The TRV-ZBT does not move on these writes alone.
+
+- A TRV turned on while VTherm stays OFF marks the start of a recalibration: no kick and no resume until it ends, and the idle position stays at 0.
+- Full opening: the quirk writes `idle_valve_position` = 0 and the cold fake temperature, with the external sensor. The TRV heats and opens the valve to 100.
+- Full closing: the quirk only writes the hot fake temperature. The TRV goes idle and closes the valve to 0.
+- The temperature source is restored by the first command after the recalibration (regulation, repair, OFF), or after 15 minutes without any command.
 
 ## Behavior around OFF
 
-- When VTherm turns the TRV OFF, the quirk cancels the kick and the pending request, restores the temperature source and writes `idle_valve_position` = 0, all before `off` is sent to the TRV. The writes are confirmed before VTherm continues.
+- When VTherm turns the TRV OFF, the quirk cancels the kick, the pending request and a running slam close, restores the temperature source, does the slam close if it applies, and writes `idle_valve_position` = 0, all before `off` is sent to the TRV. The writes are confirmed before VTherm continues.
 - When the TRV goes back from `off` to `heat`, the kick waits until the TRV reports its new state, because it has no effect while the TRV is off. The idle position is synchronized with the last opening at that moment.
 - A TRV turned off on the device itself gets the same treatment.
 
@@ -86,5 +126,6 @@ At startup, a temperature source left external (for example after a restart duri
 ## Troubleshooting
 
 - The valve does not reach the requested opening: increase the kick duration, then try the hot step.
+- The valve does not close fully after a while: increase the pre-opening, or run a valve recalibration from VTherm.
 - The valve keeps heating after OFF: check that the VTherm is a recent release that calls the hooks, and that no repair issue is open for the quirk.
 - Nothing happens: check the logs of `custom_components.vtherm_quirks`, and that the four entities of the quirk exist and are enabled.

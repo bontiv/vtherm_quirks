@@ -6,9 +6,18 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from vtherm_api import ValveCommand, ValveCommandCause
+from vtherm_api import (
+    ValveCommand,
+    ValveCommandCause,
+    ValveWriteDecision,
+    ValveWriteRequest,
+)
 
-from custom_components.vtherm_quirks.quirks.sonoff_trv_zbt import SonoffTrvZbtQuirk
+from custom_components.vtherm_quirks.quirks.sonoff_trv_zbt import (
+    RECALIBRATION_TIMEOUT,
+    SETTLE_MARGIN,
+    SonoffTrvZbtQuirk,
+)
 
 from ..common import (
     CLIMATE,
@@ -46,6 +55,7 @@ def valve_command(
     opening: int = 50,
     cause: ValveCommandCause = ValveCommandCause.REGULATION,
     hvac_mode: str = "heat",
+    written_by_plugin: bool = False,
 ) -> ValveCommand:
     return ValveCommand(
         climate_entity_id=CLIMATE,
@@ -56,7 +66,57 @@ def valve_command(
         closing_degree=None,
         hvac_mode=hvac_mode,
         cause=cause,
+        written_by_plugin=written_by_plugin,
     )
+
+
+def write_request(
+    opening: int,
+    cause: ValveCommandCause = ValveCommandCause.REGULATION,
+    hvac_mode: str = "heat",
+) -> ValveWriteRequest:
+    return ValveWriteRequest(
+        climate_entity_id=CLIMATE,
+        opening_degree_entity_id=HEATING,
+        closing_degree_entity_id=None,
+        percent_open=opening,
+        opening_degree=opening,
+        requested_opening_degree=opening,
+        max_opening_degree=100,
+        hvac_mode=hvac_mode,
+        cause=cause,
+    )
+
+
+async def send(
+    quirk: SonoffTrvZbtQuirk,
+    opening: int,
+    cause: ValveCommandCause = ValveCommandCause.REGULATION,
+    hvac_mode: str = "heat",
+) -> ValveWriteDecision | None:
+    """One valve command of the core: the hook before the write, then the hook after it.
+
+    The write of the core itself is not simulated: the calls of ``sim`` are the
+    writes of the quirk.
+    """
+    decision = await quirk.async_before_valve_write(write_request(opening, cause, hvac_mode))
+    handled = decision is not None and decision.handled
+    await quirk.async_after_valve_command(
+        valve_command(opening, cause, hvac_mode, written_by_plugin=handled)
+    )
+    await flush()
+    return decision
+
+
+async def opened_at(hass: HomeAssistant, sim: TrvSim, opening: int, **options) -> SonoffTrvZbtQuirk:
+    """A started quirk whose last command is ``opening``, its kick ended, calls cleared."""
+    quirk = make_quirk(hass, sim, **options)
+    await quirk.async_start()
+    await quirk.async_after_valve_command(valve_command(opening))
+    await flush()
+    await advance(hass, 5)
+    sim.clear()
+    return quirk
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +184,13 @@ def test_roles_and_options() -> None:
         "delta": 2.0,
         "pulse_delay": 5,
         "hot_step": False,
+        "pre_open": 10,
+        "slam_delay": 5,
     }
+    schema = SonoffTrvZbtQuirk.options_schema().schema
+    selectors = {str(key): value.config for key, value in schema.items()}
+    assert (selectors["pre_open"]["min"], selectors["pre_open"]["max"]) == (0, 100)
+    assert (selectors["slam_delay"]["min"], selectors["slam_delay"]["max"]) == (1, 9)
 
 
 # ---------------------------------------------------------------------------
@@ -251,20 +317,6 @@ async def test_same_opening_does_not_kick_again(hass: HomeAssistant) -> None:
     )
     await flush()
     assert sim.external_on in sim.calls
-    await quirk.async_stop()
-
-
-async def test_recalibration_does_not_kick(hass: HomeAssistant) -> None:
-    """The forced strokes of the recalibration start no kick and write no idle position."""
-    sim = TrvSim(hass).setup()
-    quirk = make_quirk(hass, sim)
-    await quirk.async_start()
-    sim.clear()
-    await quirk.async_after_valve_command(valve_command(100, ValveCommandCause.RECALIBRATION))
-    await quirk.async_after_valve_command(valve_command(0, ValveCommandCause.RECALIBRATION))
-    await flush()
-    await advance(hass, 5)
-    assert sim.calls == []
     await quirk.async_stop()
 
 
@@ -537,6 +589,474 @@ async def test_service_failure_still_restores(hass: HomeAssistant) -> None:
     await quirk.async_after_valve_command(valve_command(70))
     await flush()
     assert ("number", EXTERNAL, 18.0) in sim.calls
+    await quirk.async_stop()
+
+
+# ---------------------------------------------------------------------------
+# Slam close before OFF
+# ---------------------------------------------------------------------------
+def turn_off_hook(hass: HomeAssistant, quirk: SonoffTrvZbtQuirk):
+    """The OFF hook as the core awaits it, in a task so that the test drives the clock."""
+    return hass.async_create_task(
+        quirk.async_before_underlying_hvac_mode(CLIMATE, "off", "heat", None)
+    )
+
+
+@pytest.mark.parametrize("kind", ["z2m", "zha"])
+async def test_slam_before_off(hass: HomeAssistant, kind: str) -> None:
+    """A turn off from 3 %: idle 0, heating 10, cold, wait, restore, then the hook returns."""
+    sim = TrvSim(hass, kind).setup(setpoint=20.0)
+    quirk = await opened_at(hass, sim, 3)
+
+    task = turn_off_hook(hass, quirk)
+    await flush()
+    assert not task.done()
+    assert sim.calls == [
+        ("number", IDLE, 0),
+        ("number", HEATING, 10),
+        ("number", EXTERNAL, 18.0),
+        sim.external_on,
+    ]
+
+    await advance(hass, 4)
+    assert not task.done()
+    await advance(hass, 5)  # advance() counts from now, not from the previous call
+    assert task.done()
+    assert sim.calls[4:] == [sim.external_off]
+    assert hass.states.get(CLIMATE).state == "heat"  # the OFF is sent by the core afterwards
+    await quirk.async_stop()
+
+
+@pytest.mark.parametrize(
+    ("opening", "options"),
+    [(50, {}), (10, {}), (0, {}), (3, {"pre_open": 0}), (30, {"pre_open": 40, "slam_delay": 1})],
+)
+async def test_slam_before_off_only_from_below_pre_open(
+    hass: HomeAssistant, opening: int, options: dict
+) -> None:
+    """No slam close from an opening at or above the pre-opening, from 0, or with pre_open 0."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, opening, **options)
+    task = turn_off_hook(hass, quirk)
+    await flush()
+    slammed = ("number", HEATING, options.get("pre_open", 10)) in sim.calls
+    assert slammed == (opening == 30)
+    if not slammed:
+        assert task.done()
+        assert sim.calls in ([], [("number", IDLE, 0)])
+    await advance(hass, 1)
+    assert task.done()
+    await quirk.async_stop()
+
+
+async def test_slam_before_off_without_last_opening(hass: HomeAssistant) -> None:
+    """Without a command since the start there is no opening to close from: no slam close."""
+    sim = TrvSim(hass).setup(idle=5)
+    quirk = make_quirk(hass, sim)
+    await quirk.async_start()
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "off", "heat", None)
+    assert sim.calls == [("number", IDLE, 0)]
+    await quirk.async_stop()
+
+
+async def test_slam_before_off_needs_a_setpoint(hass: HomeAssistant) -> None:
+    """Without setpoint no fake temperature can be sent: only the idle position is closed."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3)
+    sim.set_hvac("heat", setpoint=None)
+    await flush()
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "off", "heat", None)
+    assert sim.calls == [("number", IDLE, 0)]
+    await quirk.async_stop()
+
+
+async def test_slam_before_off_wait_is_shortened(hass: HomeAssistant) -> None:
+    """Slow writes shorten the wait so that the hook returns within its budget."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3, slam_delay=9)
+    clock = [1000.0]
+    sleeps: list[float] = []
+    write = quirk._set_number
+
+    async def slow_write(entity_id: str, value: float, *, blocking: bool = True) -> bool:
+        clock[0] += 1.5
+        return await write(entity_id, value, blocking=blocking)
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    quirk._now = lambda: clock[0]
+    quirk._set_number = slow_write
+    quirk.async_sleep = sleep
+
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "off", "heat", None)
+    # Three numbers written (4.5 s), 0.5 s kept for the restoration: 9.5 - 0.5 - 4.5.
+    assert sleeps == [pytest.approx(4.5)]
+    assert sim.calls[-1] == sim.external_off
+    await quirk.async_stop()
+
+
+async def test_slam_before_off_full_delay_with_fast_writes(hass: HomeAssistant) -> None:
+    """With instant writes the 9 seconds are waited."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3, slam_delay=9)
+    clock = [1000.0]
+    sleeps: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    quirk._now = lambda: clock[0]
+    quirk.async_sleep = sleep
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "off", "heat", None)
+    assert sleeps == [9.0]
+    await quirk.async_stop()
+
+
+async def test_slam_before_off_cut_by_the_core_restores(hass: HomeAssistant) -> None:
+    """A hook cancelled by the timeout of the core still restores the temperature source."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3)
+    task = turn_off_hook(hass, quirk)
+    await flush()
+    assert sim.external_on in sim.calls
+    task.cancel()
+    await flush()
+    assert task.done()
+    assert sim.calls[-1] == sim.external_off
+    await quirk.async_stop()
+
+
+async def test_slam_before_off_remote_source(hass: HomeAssistant) -> None:
+    """With the remote source, the saved external temperature is written back."""
+    sim = TrvSim(hass).setup(external=22.5)
+    hass.states.async_set("select.trv_temperature_sensor_select", "remote_temperature")
+    quirk = await opened_at(hass, sim, 3, temperature_source="remote")
+    task = turn_off_hook(hass, quirk)
+    await flush()
+    assert sim.external_on not in sim.calls  # already external
+    await advance(hass, 5)
+    assert task.done()
+    assert sim.calls[-1] == ("number", EXTERNAL, 22.5)
+    await quirk.async_stop()
+
+
+# ---------------------------------------------------------------------------
+# Slam close of the regulation
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("kind", ["z2m", "zha"])
+async def test_regulation_slam_close(hass: HomeAssistant, kind: str) -> None:
+    """A regulation close from 3 %: pre-opening, then heating 0 and a hot step to idle."""
+    sim = TrvSim(hass, kind).setup(setpoint=20.0)
+    quirk = await opened_at(hass, sim, 3)
+
+    decision = await send(quirk, 0)
+    assert decision == ValveWriteDecision(
+        handled=True, opening_degree=0, settle_sec=5 + 5 + SETTLE_MARGIN
+    )
+    assert sim.calls == [
+        ("number", IDLE, 0),
+        ("number", HEATING, 10),
+        ("number", EXTERNAL, 18.0),
+        sim.external_on,
+    ]
+
+    await advance(hass, 5)
+    assert sim.calls[4:] == [("number", HEATING, 0), ("number", EXTERNAL, 22.0)]
+    await advance(hass, 5)
+    assert sim.calls[6:] == [sim.external_off]
+    await advance(hass, 30)
+    assert len(sim.calls) == 7  # no kick after the slam close
+    await quirk.async_stop()
+
+
+async def test_regulation_slam_settle_follows_the_delays(hass: HomeAssistant) -> None:
+    """settle_sec is the pre-opening plus the kick duration plus the margin."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3, slam_delay=8, pulse_delay=5)
+    decision = await send(quirk, 0)
+    assert decision.settle_sec == 8 + 5 + SETTLE_MARGIN
+    await quirk.async_stop()
+
+
+async def test_regulation_close_from_above_pre_open_kicks(hass: HomeAssistant) -> None:
+    """A close from 50 % is left to the core: idle 0 and a kick, as before."""
+    sim = TrvSim(hass).setup(idle=49)
+    quirk = await opened_at(hass, sim, 50)
+    decision = await send(quirk, 0)
+    assert decision is None
+    assert sim.calls == [("number", IDLE, 0), ("number", EXTERNAL, 18.0), sim.external_on]
+    await quirk.async_stop()
+
+
+async def test_regulation_slam_uses_the_closed_floor(hass: HomeAssistant) -> None:
+    """With max_closing_degree 95 an opening of 5 is a close: the slam ends at 5."""
+    sim = TrvSim(hass).setup()
+    infos = vtherm_entry_infos(max_closing_degree=95)
+    quirk = make_quirk(hass, sim, infos)
+    await quirk.async_start()
+    await quirk.async_after_valve_command(valve_command(8))
+    await flush()
+    await advance(hass, 5)
+    sim.clear()
+
+    decision = await send(quirk, 5)
+    assert decision.handled and decision.opening_degree == 5
+    assert sim.calls[:2] == [("number", IDLE, 4), ("number", HEATING, 10)]
+    await advance(hass, 5)
+    assert ("number", HEATING, 5) in sim.calls
+    await quirk.async_stop()
+
+
+async def test_regulation_slam_cancelled_by_an_opening(hass: HomeAssistant) -> None:
+    """An opening during the slam close drops it before the core writes."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3)
+    await send(quirk, 0)
+    sim.clear()
+
+    decision = await send(quirk, 40)
+    assert decision is None
+    assert sim.calls == [
+        sim.external_off,
+        ("number", IDLE, 39),
+        ("number", EXTERNAL, 18.0),
+        sim.external_on,
+    ]
+    await advance(hass, 5)
+    assert ("number", HEATING, 0) not in sim.calls
+    await quirk.async_stop()
+
+
+async def test_regulation_slam_cancelled_by_off(hass: HomeAssistant) -> None:
+    """OFF during the slam close: source restored, idle 0, no second slam close."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3)
+    await send(quirk, 0)
+    sim.clear()
+
+    task = turn_off_hook(hass, quirk)
+    await flush()
+    assert task.done()
+    assert sim.calls == [sim.external_off]  # idle is already 0
+    await advance(hass, 20)
+    assert sim.calls == [sim.external_off]
+    await quirk.async_stop()
+
+
+async def test_regulation_close_sent_again_during_the_slam(hass: HomeAssistant) -> None:
+    """A repair that sends the close again is taken over too, without new writes."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3)
+    await send(quirk, 0)
+    sim.clear()
+    decision = await send(quirk, 0, ValveCommandCause.REPAIR)
+    assert decision.handled
+    assert SETTLE_MARGIN <= decision.settle_sec <= 5 + 5 + SETTLE_MARGIN
+    assert sim.calls == []
+    await quirk.async_stop()
+
+
+async def test_regulation_same_close_after_the_slam(hass: HomeAssistant) -> None:
+    """The next cycle sends 0 again: nothing is written and no kick runs."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3)
+    await send(quirk, 0)
+    await advance(hass, 5)
+    await advance(hass, 5)
+    sim.clear()
+    assert await send(quirk, 0) is None
+    await advance(hass, 10)
+    assert sim.calls == []
+    await quirk.async_stop()
+
+
+@pytest.mark.parametrize(
+    ("cause", "hvac_mode"),
+    [(ValveCommandCause.TURN_OFF, "off"), (ValveCommandCause.REGULATION, "off")],
+)
+async def test_regulation_slam_not_for_a_turn_off(
+    hass: HomeAssistant, cause: ValveCommandCause, hvac_mode: str
+) -> None:
+    """The close that follows the OFF mode is left to the core."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3)
+    assert await quirk.async_before_valve_write(write_request(0, cause, hvac_mode)) is None
+    await quirk.async_stop()
+
+
+async def test_regulation_slam_not_when_trv_off(hass: HomeAssistant) -> None:
+    """A TRV already off cannot go through the pre-opening."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3)
+    sim.set_hvac("off")
+    await flush()
+    assert await quirk.async_before_valve_write(write_request(0)) is None
+    await quirk.async_stop()
+
+
+async def test_stop_during_the_regulation_slam_restores(hass: HomeAssistant) -> None:
+    """Stopping the quirk during the slam close restores the temperature source."""
+    sim = TrvSim(hass).setup()
+    quirk = await opened_at(hass, sim, 3)
+    await send(quirk, 0)
+    sim.clear()
+    await quirk.async_stop()
+    assert sim.calls == [sim.external_off]
+
+
+# ---------------------------------------------------------------------------
+# Recalibration
+# ---------------------------------------------------------------------------
+async def recalibration_started(hass: HomeAssistant, sim: TrvSim) -> SonoffTrvZbtQuirk:
+    """VTherm turned OFF from 50 %, then the core turns the TRV on for the recalibration."""
+    quirk = await opened_at(hass, sim, 50)
+    quirk.runtime.vtherm_hvac_mode = "off"
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "off", "heat", None)
+    sim.set_hvac("off")
+    await flush()
+    await quirk.async_after_valve_command(
+        valve_command(0, ValveCommandCause.TURN_OFF, hvac_mode="off")
+    )
+    sim.clear()
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "heat", "off", None)
+    sim.set_hvac("heat", setpoint=20.0)
+    await flush()
+    return quirk
+
+
+def recalibration(percent: int) -> ValveCommand:
+    return valve_command(percent, ValveCommandCause.RECALIBRATION, hvac_mode="off")
+
+
+@pytest.mark.parametrize("kind", ["z2m", "zha"])
+async def test_recalibration_sequence(hass: HomeAssistant, kind: str) -> None:
+    """Cold at the full opening, hot at the full closing, source restored by the next command."""
+    sim = TrvSim(hass, kind).setup(idle=49)
+    quirk = await recalibration_started(hass, sim)
+    assert sim.calls == []  # the TRV turned on: no resume, no kick
+
+    await quirk.async_after_valve_command(recalibration(100))
+    assert sim.calls == [("number", EXTERNAL, 18.0), sim.external_on]
+    await advance(hass, 60)
+    assert len(sim.calls) == 2  # the source stays external
+
+    await quirk.async_after_valve_command(recalibration(0))
+    assert sim.calls[2:] == [("number", EXTERNAL, 22.0)]  # no heating write, no sensor write
+
+    quirk.runtime.vtherm_hvac_mode = "heat"
+    await quirk.async_after_valve_command(valve_command(30))
+    await flush()
+    assert sim.calls[3:] == [
+        sim.external_off,
+        ("number", IDLE, 29),
+        ("number", EXTERNAL, 18.0),
+        sim.external_on,
+    ]
+    await quirk.async_stop()
+
+
+async def test_recalibration_idle_closed(hass: HomeAssistant) -> None:
+    """A recalibration that starts with an open idle position closes it."""
+    sim = TrvSim(hass).setup()
+    quirk = make_quirk(hass, sim)
+    quirk.runtime.vtherm_hvac_mode = "off"
+    await quirk.async_start()
+    hass.states.async_set(IDLE, "40")
+    await quirk.async_after_valve_command(recalibration(100))
+    await flush()
+    assert sim.calls[0] == ("number", IDLE, 0)
+    assert sim.calls[1:] == [("number", EXTERNAL, 18.0), sim.external_on]
+    await quirk.async_stop()
+
+
+async def test_recalibration_ended_by_off(hass: HomeAssistant) -> None:
+    """A recalibration that ends with VTherm OFF restores the source before the OFF."""
+    sim = TrvSim(hass).setup()
+    quirk = await recalibration_started(hass, sim)
+    await quirk.async_after_valve_command(recalibration(100))
+    await quirk.async_after_valve_command(recalibration(0))
+    sim.clear()
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "off", "heat", None)
+    assert sim.calls == [sim.external_off]  # idle already 0, no slam close
+    await quirk.async_stop()
+
+
+async def test_recalibration_timeout(hass: HomeAssistant) -> None:
+    """Without any command after it, the recalibration ends after the safety delay."""
+    sim = TrvSim(hass).setup()
+    quirk = await recalibration_started(hass, sim)
+    await quirk.async_after_valve_command(recalibration(100))
+    await quirk.async_after_valve_command(recalibration(0))
+    sim.clear()
+    await advance(hass, RECALIBRATION_TIMEOUT - 10)
+    assert sim.calls == []
+    await advance(hass, RECALIBRATION_TIMEOUT + 1)
+    assert sim.calls == [sim.external_off]
+    assert not quirk._recalibrating
+    await quirk.async_stop()
+
+
+async def test_recalibration_stop_restores(hass: HomeAssistant) -> None:
+    """Stopping the quirk during a recalibration restores the source."""
+    sim = TrvSim(hass).setup()
+    quirk = await recalibration_started(hass, sim)
+    await quirk.async_after_valve_command(recalibration(100))
+    sim.clear()
+    await quirk.async_stop()
+    assert sim.calls == [sim.external_off]
+
+
+async def test_recalibration_remote_source(hass: HomeAssistant) -> None:
+    """With the remote source the external value saved at the first step is written back."""
+    sim = TrvSim(hass).setup(external=21.0)
+    hass.states.async_set("select.trv_temperature_sensor_select", "remote_temperature")
+    quirk = make_quirk(hass, sim, temperature_source="remote")
+    quirk.runtime.vtherm_hvac_mode = "off"
+    await quirk.async_start()
+    await quirk.async_after_valve_command(recalibration(100))
+    await quirk.async_after_valve_command(recalibration(0))
+    sim.clear()
+    await quirk.async_after_valve_command(valve_command(0, ValveCommandCause.REPAIR))
+    assert sim.calls[0] == ("number", EXTERNAL, 21.0)
+    await quirk.async_stop()
+
+
+async def test_recalibration_without_setpoint(hass: HomeAssistant) -> None:
+    """Without setpoint the steps send nothing, and nothing is restored."""
+    sim = TrvSim(hass).setup(setpoint=None)
+    quirk = make_quirk(hass, sim)
+    await quirk.async_start()
+    await quirk.async_after_valve_command(recalibration(100))
+    await quirk.async_after_valve_command(recalibration(0))
+    await quirk.async_after_valve_command(valve_command(0, ValveCommandCause.REPAIR, hvac_mode="off"))
+    assert sim.external_on not in sim.calls
+    assert sim.external_off not in sim.calls
+    await quirk.async_stop()
+
+
+@pytest.mark.parametrize(
+    ("vtherm_mode", "cause"),
+    [("heat", None), ("off", "underlying_tracking")],
+)
+async def test_leaving_off_is_not_always_a_recalibration(
+    hass: HomeAssistant, vtherm_mode: str, cause: str | None
+) -> None:
+    """VTherm turned on, or the TRV turned on at the device: the kick resumes."""
+    sim = TrvSim(hass).setup(idle=0)
+    quirk = await opened_at(hass, sim, 60)
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "off", "heat", None)
+    sim.set_hvac("off")
+    await flush()
+    sim.clear()
+    quirk.runtime.vtherm_hvac_mode = vtherm_mode
+    await quirk.async_before_underlying_hvac_mode(CLIMATE, "heat", "off", cause)
+    sim.set_hvac("heat", setpoint=20.0)
+    await flush()
+    assert not quirk._recalibrating
+    assert sim.external_on in sim.calls
+    await advance(hass, 5)
     await quirk.async_stop()
 
 

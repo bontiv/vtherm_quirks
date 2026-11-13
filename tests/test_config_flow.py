@@ -84,10 +84,19 @@ async def test_full_flow_with_detected_quirk(hass: HomeAssistant, kind: str) -> 
         "delta": 2.0,
         "pulse_delay": 5,
         "hot_step": False,
+        "pre_open": 10,
+        "slam_delay": 5,
     }
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {"temperature_source": "remote", "delta": 3.0, "pulse_delay": 8, "hot_step": True},
+        {
+            "temperature_source": "remote",
+            "delta": 3.0,
+            "pulse_delay": 8,
+            "hot_step": True,
+            "pre_open": 20,
+            "slam_delay": 9,
+        },
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -103,6 +112,8 @@ async def test_full_flow_with_detected_quirk(hass: HomeAssistant, kind: str) -> 
                     "delta": 3.0,
                     "pulse_delay": 8,
                     "hot_step": True,
+                    "pre_open": 20,
+                    "slam_delay": 9,
                 },
             }
         },
