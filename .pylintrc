@@ -1,0 +1,5 @@
+[MAIN]
+source-roots=.
+
+[FORMAT]
+max-line-length=180

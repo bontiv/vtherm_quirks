@@ -6,6 +6,7 @@ Thermostat through the underlying hooks of ``vtherm_api``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
@@ -33,6 +34,11 @@ _REQUIRED_API_NAMES = (
     "UNDERLYING_HOOK_TIMEOUT_SEC",
 )
 
+# Maximum time to wait for a VTherm to finish its startup before giving up on
+# the reload check, and the polling interval used while waiting.
+_STARTUP_WAIT_TIMEOUT_SEC = 60
+_STARTUP_POLL_INTERVAL_SEC = 0.5
+
 
 def hooks_available() -> bool:
     """True when the installed vtherm_api exposes the underlying hooks contract."""
@@ -57,11 +63,7 @@ def _find_vtherm_entity(hass: HomeAssistant, unique_id: str):
 async def _async_reload_vtherm(hass: HomeAssistant, unique_id: str) -> None:
     """Reload a VTherm so that it rebuilds its managers (the unique id is its entry id)."""
     vtherm_entry = hass.config_entries.async_get_entry(unique_id)
-    if (
-        vtherm_entry is None
-        or vtherm_entry.domain != VTHERM_DOMAIN
-        or vtherm_entry.state is not ConfigEntryState.LOADED
-    ):
+    if vtherm_entry is None or vtherm_entry.domain != VTHERM_DOMAIN or vtherm_entry.state is not ConfigEntryState.LOADED:
         _LOGGER.debug(
             "VTherm reload skipped for %s: entry found=%s, domain=%s (expected %s), state=%s (expected %s)",
             unique_id,
@@ -76,31 +78,71 @@ async def _async_reload_vtherm(hass: HomeAssistant, unique_id: str) -> None:
     await hass.config_entries.async_reload(vtherm_entry.entry_id)
 
 
+async def _async_wait_vtherm_started(hass: HomeAssistant, unique_id: str):
+    """Wait until the VTherm finished its startup and return its (re-read) entity.
+
+    Return None when the entity is not found, the VTherm entry is no longer
+    loaded, Home Assistant is stopping or the wait timed out. A cancellation
+    is propagated.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _STARTUP_WAIT_TIMEOUT_SEC
+    _LOGGER.debug("VTherm %s: waiting for its startup to complete", unique_id)
+    while True:
+        entity = _find_vtherm_entity(hass, unique_id)
+        if entity is None:
+            _LOGGER.debug(
+                "VTherm %s: climate entity not found while waiting for startup",
+                unique_id,
+            )
+            return None
+        vtherm_entry = hass.config_entries.async_get_entry(unique_id)
+        if vtherm_entry is None or vtherm_entry.state is not ConfigEntryState.LOADED:
+            _LOGGER.debug(
+                "VTherm %s: entry not loaded anymore while waiting for startup",
+                unique_id,
+            )
+            return None
+        if getattr(entity, "is_ready", False):
+            _LOGGER.debug("VTherm %s: startup completed", unique_id)
+            return entity
+        if hass.is_stopping:
+            _LOGGER.debug(
+                "VTherm %s: Home Assistant is stopping, startup wait aborted",
+                unique_id,
+            )
+            return None
+        if loop.time() >= deadline:
+            _LOGGER.debug(
+                "VTherm %s: startup wait timed out after %ss, no reload",
+                unique_id,
+                _STARTUP_WAIT_TIMEOUT_SEC,
+            )
+            return None
+        await asyncio.sleep(_STARTUP_POLL_INTERVAL_SEC)
+
+
 @callback
-def _schedule_vtherm_reload(
-    hass: HomeAssistant, unique_id: str, *, only_if_missing: bool = False
-) -> None:
+def _schedule_vtherm_reload(hass: HomeAssistant, unique_id: str, *, only_if_missing: bool = False) -> None:
     """Reload the VTherm in the background, only the concerned one."""
 
     async def _reload() -> None:
         if only_if_missing:
-            entity = _find_vtherm_entity(hass, unique_id)
+            entity = await _async_wait_vtherm_started(hass, unique_id)
             if entity is None:
                 _LOGGER.debug(
-                    "VTherm %s: climate entity not found, reload skipped (only_if_missing)",
+                    "VTherm %s: not started (or not found), reload skipped (only_if_missing)",
                     unique_id,
                 )
                 return
             if entity.get_feature_manager(FACTORY_NAME) is not None:
                 _LOGGER.debug(
-                    "VTherm %s: manager %s already present, reload skipped (only_if_missing)",
+                    "VTherm %s: manager %s present after startup, reload skipped (only_if_missing)",
                     unique_id,
                     FACTORY_NAME,
                 )
                 return
-            _LOGGER.debug(
-                "VTherm %s: manager %s missing, reloading it", unique_id, FACTORY_NAME
-            )
+            _LOGGER.debug("VTherm %s: manager %s missing, reloading it", unique_id, FACTORY_NAME)
         else:
             _LOGGER.debug("VTherm %s: reload requested", unique_id)
         await _async_reload_vtherm(hass, unique_id)
@@ -127,9 +169,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             severity=ir.IssueSeverity.ERROR,
             translation_key="hooks_unavailable",
         )
-        _LOGGER.error(
-            "vtherm_api does not expose the underlying hooks (0.9.0 or later is required)"
-        )
+        _LOGGER.error("vtherm_api does not expose the underlying hooks (0.9.0 or later is required)")
         return False
     ir.async_delete_issue(hass, DOMAIN, "hooks_unavailable")
 
@@ -173,13 +213,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "Home Assistant is not running: the reload of VTherm %s is deferred to the started event",
             target,
         )
+
         # The VTherm picks the manager up by itself when it starts. If it
         # started before this entry, reload it once Home Assistant is up.
         @callback
         def _on_started(_hass: HomeAssistant) -> None:
-            _LOGGER.debug(
-                "Home Assistant started: checking the manager of VTherm %s", target
-            )
+            _LOGGER.debug("Home Assistant started: checking the manager of VTherm %s", target)
             _schedule_vtherm_reload(hass, target, only_if_missing=True)
 
         # The cancel function of async_at_started is safe to call after the
@@ -197,10 +236,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Unloading entry '%s' (%s)", entry.title, entry.entry_id)
     async_clear_issues(hass, entry_scope(entry))
 
-    others_loaded = any(
-        other.entry_id != entry.entry_id and other.state is ConfigEntryState.LOADED
-        for other in hass.config_entries.async_entries(DOMAIN)
-    )
+    others_loaded = any(other.entry_id != entry.entry_id and other.state is ConfigEntryState.LOADED for other in hass.config_entries.async_entries(DOMAIN))
     if not others_loaded:
         api = VThermAPI.get_vtherm_api(hass)
         if api is not None:
