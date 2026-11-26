@@ -17,6 +17,7 @@ from homeassistant.helpers.start import async_at_started
 from .const import (
     CONF_TARGET_VTHERM_UNIQUE_ID,
     DATA_FACTORY,
+    DATA_QUIRKS,
     DOMAIN,
     FACTORY_NAME,
     VTHERM_DOMAIN,
@@ -242,6 +243,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if api is not None:
             api.unregister_feature_manager(FACTORY_NAME)
         hass.data.get(DOMAIN, {}).pop(DATA_FACTORY, None)
+        hass.data.get(DOMAIN, {}).pop(DATA_QUIRKS, None)
         _LOGGER.debug("No other entry loaded: factory %s unregistered", FACTORY_NAME)
     else:
         _LOGGER.debug("Other entries still loaded: factory %s kept", FACTORY_NAME)

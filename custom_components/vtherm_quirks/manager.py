@@ -15,6 +15,7 @@ from .const import (
     CONF_QUIRK,
     CONF_QUIRKS,
     CONF_TARGET_VTHERM_UNIQUE_ID,
+    DATA_QUIRKS,
     DOMAIN,
     FACTORY_NAME,
 )
@@ -101,12 +102,18 @@ class QuirksManager:
         self._listeners: list[CALLBACK_TYPE] = []
         self._issue_signature: tuple | None = None
         self._started = False
+        self._stopped = False
 
     # ------------------------------------------------------------------
     # InterfaceFeatureManager
     # ------------------------------------------------------------------
     def post_init(self, entry_infos: dict[str, Any]) -> None:
         """Create the quirk instances from the config entry of the plugin."""
+        if self._stopped:
+            _LOGGER.debug(
+                "%s - post_init ignored: manager already stopped", self._runtime.name
+            )
+            return
         self._quirks = {}
         entry = find_config_entry(self._hass, self._runtime.unique_id)
         if entry is None:
@@ -171,6 +178,12 @@ class QuirksManager:
 
     async def start_listening(self, force: bool = False) -> None:
         """Start the quirks."""
+        if self._stopped:
+            _LOGGER.debug(
+                "%s - start_listening ignored: manager already stopped",
+                self._runtime.name,
+            )
+            return
         self._started = True
         _LOGGER.debug(
             "%s - start_listening: force=%s, quirks=%s",
@@ -178,7 +191,9 @@ class QuirksManager:
             force,
             list(self._quirks),
         )
-        for quirk in self._quirks.values():
+        for quirk in list(self._quirks.values()):
+            if self._stopped:
+                return
             quirk.issue_sync_callback = self._sync_issues
             if not quirk.is_configured:
                 _LOGGER.debug(
@@ -188,16 +203,25 @@ class QuirksManager:
                     quirk.underlying_entity_id,
                     _missing_roles(quirk),
                 )
+            await self._async_claim(quirk)
+            if self._stopped:
+                return
             try:
                 await quirk.async_start()
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception(
                     "%s - quirk %s failed to start", self._runtime.name, quirk.quirk_id
                 )
+            if self._stopped:
+                return
         self._sync_issues(force=True)
 
     def stop_listening(self) -> bool:
-        """Stop the quirks. They restore their device in a background task."""
+        """Stop the quirks. They restore their device in a background task.
+
+        The manager is single-use: once stopped it never starts again.
+        """
+        self._stopped = True
         _LOGGER.debug(
             "%s - stop_listening: started=%s, quirks=%s",
             self._runtime.name,
@@ -207,16 +231,53 @@ class QuirksManager:
         for cancel in self._listeners:
             cancel()
         self._listeners.clear()
+        for quirk in self._quirks.values():
+            quirk.issue_sync_callback = None
+            self._hass.async_create_background_task(
+                self._async_stop_quirk(quirk),
+                f"vtherm_quirks stop {quirk.quirk_id} {quirk.underlying_entity_id}",
+            )
         if self._started:
-            for quirk in self._quirks.values():
-                quirk.issue_sync_callback = None
-                self._hass.async_create_background_task(
-                    self._async_stop_quirk(quirk),
-                    f"vtherm_quirks stop {quirk.quirk_id} {quirk.underlying_entity_id}",
-                )
             async_clear_issues(self._hass, self._scope)
         self._started = False
         return True
+
+    def _registry(self) -> dict[str, BaseQuirk]:
+        """Active quirks of the whole plugin, by underlying entity id."""
+        return self._hass.data.setdefault(DOMAIN, {}).setdefault(DATA_QUIRKS, {})
+
+    async def _async_claim(self, quirk: BaseQuirk) -> None:
+        """Make ``quirk`` the only active instance of its underlying.
+
+        The previous instance, if any, is marked superseded, detached from the
+        repairs and stopped. The new one is registered before any await.
+        """
+        registry = self._registry()
+        underlying = quirk.underlying_entity_id
+        previous = registry.get(underlying)
+        if previous is quirk:
+            return
+        if previous is not None:
+            previous.superseded = True
+            previous.issue_sync_callback = None
+        registry[underlying] = quirk
+        if previous is None:
+            return
+        _LOGGER.warning(
+            "%s - quirk %s of %s was already active (duplicate instance), "
+            "stopping the previous instance",
+            self._runtime.name,
+            quirk.quirk_id,
+            underlying,
+        )
+        try:
+            await previous.async_stop()
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception(
+                "%s - previous instance of quirk %s failed to stop",
+                self._runtime.name,
+                previous.quirk_id,
+            )
 
     async def _async_stop_quirk(self, quirk: BaseQuirk) -> None:
         try:
@@ -225,6 +286,10 @@ class QuirksManager:
             _LOGGER.exception(
                 "%s - quirk %s failed to stop", self._runtime.name, quirk.quirk_id
             )
+        finally:
+            registry = self._hass.data.get(DOMAIN, {}).get(DATA_QUIRKS)
+            if registry is not None and registry.get(quirk.underlying_entity_id) is quirk:
+                del registry[quirk.underlying_entity_id]
 
     async def refresh_state(self) -> bool:
         """Refresh the repairs. Called by the core at each cycle."""
@@ -317,6 +382,15 @@ class QuirksManager:
                 hook,
                 entity_ids,
                 list(self._quirks),
+            )
+            return
+        if quirk.superseded:
+            _LOGGER.debug(
+                "%s - hook %s ignored: quirk %s of %s was superseded by a newer instance",
+                self._runtime.name,
+                hook,
+                quirk.quirk_id,
+                quirk.underlying_entity_id,
             )
             return
         if not quirk.is_configured:

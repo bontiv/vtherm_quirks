@@ -183,6 +183,9 @@ class BaseQuirk:
         self.options: dict[str, Any] = dict(options)
         self.issue_sync_callback: Callable[[], None] | None = None
         """Set by the manager: asks it to read ``check_configuration`` again."""
+        self.superseded = False
+        """Set by the manager when a newer instance took over the same
+        underlying: this instance must not touch the device anymore."""
         self.log = _UnderlyingLogger(
             logging.getLogger(type(self).__module__),
             {"underlying": underlying_entity_id},

@@ -31,6 +31,7 @@ QUIRK_NONE = "none"
 # hass.data keys
 DATA_FACTORY = "factory"
 DATA_ISSUES = "issues"
+DATA_QUIRKS = "quirks"
 
 # ---------------------------------------------------------------------------
 # Versatile Thermostat configuration keys, read from the runtime `entry_infos`.

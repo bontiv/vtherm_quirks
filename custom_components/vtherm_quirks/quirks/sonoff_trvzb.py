@@ -16,6 +16,7 @@ is idle). VTherm only drives the opening degree. This quirk:
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import voluptuous as vol
@@ -25,6 +26,7 @@ from homeassistant.helpers.event import (
     EventStateChangedData,
     async_track_state_change_event,
 )
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -191,6 +193,8 @@ class SonoffTrvzbQuirk(BaseQuirk):
         super().__init__(*args)
         # Last opening degree commanded by VTherm (or read at startup).
         self._last_opening: int | None = None
+        # When the quirk last set _last_opening (UTC).
+        self._opening_known_at: datetime | None = None
         # hvac mode of the last command: the corrections start again when it changes.
         self._last_mode: str | None = None
         # Slam close running, and the opening it ends on (None: end without writing).
@@ -255,6 +259,9 @@ class SonoffTrvzbQuirk(BaseQuirk):
         """Also watch the closing degree, which VTherm does not repair."""
         started = self._started
         await super().async_start()
+        if not self._started:
+            # async_stop() ran while the startup was awaiting: stay unsubscribed.
+            return
         closing = self._entity(ROLE_CLOSING_DEGREE)
         if not started and closing:
             self._unsubs.append(
@@ -267,6 +274,7 @@ class SonoffTrvzbQuirk(BaseQuirk):
         if opening is None:
             return
         self._last_opening = round(opening)
+        self._opening_known_at = dt_util.utcnow()
         closing_state = self._state(self._entity(ROLE_CLOSING_DEGREE))
         target = closing_for(self._last_opening)
         if closing_state is not None and to_float(closing_state.state) != target:
@@ -282,6 +290,7 @@ class SonoffTrvzbQuirk(BaseQuirk):
         opening = int(command.opening_degree)
         previous = self._last_opening
         self._last_opening = opening
+        self._opening_known_at = dt_util.utcnow()
         self._last_mode = str(command.hvac_mode)
         self._unstick_on_mode_change(self._last_mode)
         force = str(command.cause) in (CAUSE_STARTUP, CAUSE_REPAIR)
@@ -336,6 +345,7 @@ class SonoffTrvzbQuirk(BaseQuirk):
             if target is not None:
                 await self._set_number(closing_entity, closing_for(target))
                 await self._set_number(opening_entity, target)
+                self._opening_known_at = dt_util.utcnow()
 
     async def _supersede_slam(self, opening: int) -> None:
         """A new opening arrived during a slam close: drop it and write the opening again."""
@@ -372,8 +382,30 @@ class SonoffTrvzbQuirk(BaseQuirk):
         entity_id = self._entity(ROLE_CLOSING_DEGREE)
         state = self._state(entity_id)
         value = None if state is None else to_float(state.state)
+        if value is None:
+            return
+        # The real opening moved on without a hook (e.g. a stale quirk instance
+        # missed it) and the closing already matches it: adopt it, write nothing.
+        real_state = self._state(self._entity(ROLE_OPENING_DEGREE))
+        real = None if real_state is None else to_float(real_state.state)
+        if (
+            real is not None
+            and round(real) != self._last_opening
+            and value == closing_for(real)
+            and self._opening_known_at is not None
+            and real_state.last_updated >= self._opening_known_at
+        ):
+            self.log.info(
+                "opening changed outside the hook: %s -> %s, closing %s is consistent, resync",
+                self._last_opening,
+                round(real),
+                value,
+            )
+            self._last_opening = round(real)
+            self._opening_known_at = dt_util.utcnow()
+            return
         target = closing_for(self._last_opening)
-        if value is None or value == target:
+        if value == target:
             return
         now = self._now()
         self._corrections = [t for t in self._corrections if now - t < CORRECTION_WINDOW]
